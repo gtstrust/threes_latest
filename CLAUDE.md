@@ -162,6 +162,23 @@ Deferred from MVP (see `THREES_STRATEGY.md` §2). MVP score submission is online
 ### ADR-006: Web-first for MVP
 The Flutter app targets web only for MVP — no iOS/Android builds, no app store submission. This removes Fastlane, TestFlight, and Play Store review latency from the pilot's critical path. Native builds are Phase 2, pursued once the pilot validates the format and the fee.
 
+### ADR-007: Holes are never halved — three-level tie-break
+A hole has exactly one winner (1 pt) or no winner at all (everyone 0 pts). **There are no half-points**, so points are always integers.
+
+The winner of a hole is decided by working down three levels, stopping at the first that separates the tied players:
+
+1. **Fewest strokes.**
+2. **Closest to the pin** — the group flags one player per hole.
+3. **Longest drive on the fairway** — the group flags one player per hole. A drive that finished in the rough is not eligible, however long.
+
+If all three levels fail to separate them, **nobody wins the hole** and every player in the group scores 0 for it.
+
+A level can only break a tie if the flagged player is one of the tied players. If A and B are tied on strokes but C was flagged closest to the pin, level 2 cannot separate A from B and the cascade falls through to level 3. This means "no winner" is a genuinely common outcome, not an edge case, and both the scoring engine and the UI must treat it as normal.
+
+The overall leaderboard breaks level players on **fewest total strokes across the loop**. This deliberately replaces countback on the hardest-ranked hole, which would have required the organiser to enter a difficulty ranking for every hole at setup.
+
+**Forward compatibility with handicaps (Phase 2):** because the client submits only raw strokes (ADR-002) and points are always derived server-side, net scoring can be layered on later without changing the score-entry path or re-migrating stored scores.
+
 ## Coding Conventions
 
 ### Python (Backend)
@@ -221,8 +238,15 @@ API_BASE_URL=http://localhost:8000
 - **Round**: One stage of a tournament. Each round has multiple groups playing simultaneously.
 - **Group**: 2–3 players playing the same 3 holes together. One group = one match.
 - **Hole Score**: The number of strokes a player took on a single hole.
-- **Points**: 1 pt for winning a hole (lowest strokes), 0.5 pts for a halved hole, 0 pts for losing.
-- **Countback**: Tie-breaker using performance on the hardest-ranked hole.
+- **Points**: 1 pt for winning a hole, 0 pts otherwise. **Holes are never halved** — see ADR-007 for
+  the tie-break cascade. Points are always integers; there are no half-points.
+- **Closest to the Pin (CTP)**: Per hole, the group flags which single player finished closest to the
+  pin. Captured for every hole as a tie-break input (ADR-007), not as a standalone competition.
+- **Longest Drive on Fairway**: Per hole, the group flags which single player hit the longest drive
+  that *finished on the fairway*. A longer drive into the rough is not eligible. Tie-break input only.
+- **Leaderboard Tie-break**: Level players are separated by fewest total strokes across the loop.
+  (This replaces the earlier "countback on the hardest hole" rule, which needed a per-hole difficulty
+  ranking the organiser would have had to enter.)
 - **Fun Round**: A casual, non-tournament round between friends. **Phase 2** — not in MVP.
 - **Virtual Player**: A player without a device, whose scores are entered by another group member.
 - **Organiser Fee**: The MVP monetisation model — a flat fee, tiered by player count (small/medium/large), billed to the tournament organiser and invoiced manually. See `THREES_STRATEGY.md` §1. Not collected in-app; Stripe-based per-player entry fees are Phase 3.
@@ -236,5 +260,5 @@ API_BASE_URL=http://localhost:8000
 4. Real-time leaderboards use Supabase Realtime (Postgres LISTEN/NOTIFY), not custom WebSockets.
 5. Magic link auth means no passwords are stored. Supabase Auth handles the entire flow.
 6. MVP is a **lean validation build**: web-only, no AI, no offline sync, no Fun Rounds — see `THREES_STRATEGY.md`. The MVP milestone is running one real corporate golf day, with the organiser paying the per-event fee.
-7. Phase 2 features (deferred): native iOS/Android apps, AI invitation/summary generation, offline-first sync, Fun Rounds, longest drive, closest to pin, social friends, gamification.
+7. Phase 2 features (deferred): native iOS/Android apps, AI invitation/summary generation, offline-first sync, Fun Rounds, **handicaps / net scoring**, standalone longest-drive and closest-to-pin competitions (with their own prizes and leaderboards), social friends, gamification. Note that longest drive and closest to pin are *captured* in MVP because ADR-007 needs them to break tied holes — what's deferred is treating them as competitions in their own right.
 8. Phase 3 features (deferred): Stripe payment processing, golf club/corporate accounts, sponsors.

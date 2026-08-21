@@ -23,12 +23,15 @@ Web-only. No native apps, no AI features, no offline-first sync, no Fun Rounds
 | M1 | Repo housekeeping — CI, lint, docs | ✅ Done |
 | M2 | Tournament domain + ADR-003 state machine + organiser authz | ⬜ Next |
 | M3 | Participants, including Virtual Players | ⬜ |
-| M4 | Grouping (ADR-004) + scoring engine — pure, exhaustively tested | ⬜ Blocked¹ |
-| M5 | Rounds, round holes (stroke index), group generation | ⬜ |
+| M4 | Grouping (ADR-004) + scoring engine (ADR-007) — pure, exhaustively tested | ⬜ |
+| M5 | Rounds and group generation | ⬜ |
 | M6 | Score submission + points persistence (ADR-002) | ⬜ |
 | M7 | Leaderboard + Supabase Realtime | ⬜ |
 
-¹ M4 is blocked on two rules decisions — see [Open questions](#open-questions).
+Scoring rules are settled — see ADR-007. Holes are never halved; a hole has one winner or none,
+decided by strokes → closest to the pin → longest drive on the fairway. Points are integers.
+The leaderboard breaks level players on fewest total strokes, so no per-hole difficulty ranking
+is needed and M5 no longer carries a `stroke_index`.
 
 ### Frontend
 
@@ -51,13 +54,19 @@ not implemented.
 
 Pursued only once the pilot validates the format and the fee.
 
+- **Handicaps / net scoring.** ADR-002 keeps raw strokes as the only thing the client submits and
+  derives all points server-side, so net scoring can be added without changing score entry or
+  re-migrating stored scores. A per-event playing handicap belongs on the participant, not the
+  player, since it can differ between events.
 - Native iOS/Android builds (ADR-006)
 - Offline-first score sync — Hive-backed pending submissions, last-write-wins conflict
   resolution (ADR-005). Revisited **only if** pilot feedback shows on-course connectivity is
   actually a problem.
 - AI invitation + summary generation
 - Fun Rounds
-- Longest drive, closest to pin
+- Standalone longest-drive and closest-to-pin **competitions** — own prizes and leaderboards. Both
+  are already captured in MVP as ADR-007 tie-break inputs; what's deferred is treating them as
+  contests in their own right.
 - Social friends, gamification
 
 ## Phase 3 — Commercial
@@ -70,13 +79,11 @@ Pursued only once the pilot validates the format and the fee.
 
 ## Open questions
 
-Both block the M4 scoring engine:
+None currently blocking. Scoring rules were settled in ADR-007.
 
-1. **How are ties on a hole scored in a group of three?** The documented rule — 1 pt for winning a
-   hole, 0.5 for a halved hole, 0 for losing — is two-player language. If all three tie, is it 0.5
-   each, ⅓ each, or 1 each? If two tie for lowest, do they take 0.5 each or 1 each? This decides
-   whether points can be non-halves, and therefore the column type.
+Worth revisiting after the pilot:
 
-2. **Where does hole difficulty come from?** Countback is defined as performance on the
-   hardest-ranked hole, but nothing currently records which hole that is. Current plan is a
-   `round_holes.stroke_index` entered by the organiser, rather than a course reference table.
+- **How often does "nobody wins the hole" actually fire?** Because a tie-break level only helps when
+  the flagged player is one of the tied players, no-winner holes may turn out to be common enough to
+  feel unsatisfying. Worth measuring on the day before deciding whether the cascade needs a fourth
+  level.
