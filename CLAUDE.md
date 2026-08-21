@@ -168,12 +168,16 @@ A hole has exactly one winner (1 pt) or no winner at all (everyone 0 pts). **The
 The winner of a hole is decided by working down three levels, stopping at the first that separates the tied players:
 
 1. **Fewest strokes.**
-2. **Closest to the pin** — the group flags one player per hole.
-3. **Longest drive on the fairway** — the group flags one player per hole. A drive that finished in the rough is not eligible, however long.
+2. **Closest to the pin.**
+3. **Longest drive on the fairway.** A drive that finished in the rough is not eligible, however long.
 
 If all three levels fail to separate them, **nobody wins the hole** and every player in the group scores 0 for it.
 
-A level can only break a tie if the flagged player is one of the tied players. If A and B are tied on strokes but C was flagged closest to the pin, level 2 cannot separate A from B and the cascade falls through to level 3. This means "no winner" is a genuinely common outcome, not an edge case, and both the scoring engine and the UI must treat it as normal.
+**Levels 2 and 3 are contested only among the players tied on strokes.** If A and B are tied, the question is which *of A and B* was closer to the pin — C's ball is irrelevant however near the hole it finished. Naming a player who isn't tied is a data error rather than a silent fall-through: quietly returning "no winner" there would hide a real bug behind a plausible-looking result. The tie-break arguments are only consulted when a tie actually exists; an outright stroke winner takes the hole regardless.
+
+Because the tie-breaks are scoped to the players they concern, "no winner" is uncommon. It means the tied players genuinely could not be separated — typically none of them found the fairway.
+
+**Score entry follows from this.** There is no point flagging a hole-wide closest-to-pin or longest-drive winner, since only the tied subset counts. The tie-breaks are captured on demand: the client submits strokes, and *if* those tie, the app asks the tied players — "which of you was closest to the pin?", then if still level, "which of you hit the longest drive on the fairway?". Nothing is recorded unless it actually decided a hole.
 
 The overall leaderboard breaks level players on **fewest total strokes across the loop**. This deliberately replaces countback on the hardest-ranked hole, which would have required the organiser to enter a difficulty ranking for every hole at setup.
 
@@ -240,10 +244,12 @@ API_BASE_URL=http://localhost:8000
 - **Hole Score**: The number of strokes a player took on a single hole.
 - **Points**: 1 pt for winning a hole, 0 pts otherwise. **Holes are never halved** — see ADR-007 for
   the tie-break cascade. Points are always integers; there are no half-points.
-- **Closest to the Pin (CTP)**: Per hole, the group flags which single player finished closest to the
-  pin. Captured for every hole as a tie-break input (ADR-007), not as a standalone competition.
-- **Longest Drive on Fairway**: Per hole, the group flags which single player hit the longest drive
-  that *finished on the fairway*. A longer drive into the rough is not eligible. Tie-break input only.
+- **Closest to the Pin (CTP)**: Tie-break level 2. Asked only when players tie on strokes, and only
+  *of those tied players* — a non-tied player's ball is irrelevant however close it finished (ADR-007).
+  Not a standalone competition in MVP.
+- **Longest Drive on Fairway**: Tie-break level 3, asked on the same terms as CTP: only of the players
+  tied on strokes. A drive that finished in the rough is not eligible, however long. Not a standalone
+  competition in MVP.
 - **Leaderboard Tie-break**: Level players are separated by fewest total strokes across the loop.
   (This replaces the earlier "countback on the hardest hole" rule, which needed a per-hole difficulty
   ranking the organiser would have had to enter.)

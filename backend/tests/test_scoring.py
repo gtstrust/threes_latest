@@ -50,13 +50,19 @@ def test_tie_on_strokes_is_broken_by_closest_to_pin() -> None:
     assert result.points == {A: 0, B: 1, C: 0}
 
 
-def test_closest_to_pin_is_ignored_when_that_player_is_not_tied() -> None:
-    """The flagged player must be one of the tied players to break the tie.
+def test_closest_to_pin_must_name_a_player_tied_on_strokes() -> None:
+    """Only the tied players contest closest to the pin.
 
-    C was closest to the pin but isn't in contention on strokes, so level 2
-    cannot separate A from B and the cascade falls through.
+    A and B are tied; C is not in contention, so C cannot be the answer to
+    "which of the tied players was closest?". Naming C is a data error rather
+    than a silent fall-through to no-winner, which would hide the bug.
     """
-    result = score_hole({A: 4, B: 4, C: 6}, closest_to_pin=C)
+    with pytest.raises(ValueError, match="not tied for fewest strokes"):
+        score_hole({A: 4, B: 4, C: 6}, closest_to_pin=C)
+
+
+def test_closest_to_pin_none_means_the_level_cannot_separate_them() -> None:
+    result = score_hole({A: 4, B: 4, C: 6}, closest_to_pin=None)
 
     assert result.winner is None
     assert result.decided_by is DecidedBy.NO_WINNER
@@ -73,7 +79,8 @@ def test_closest_to_pin_does_not_override_an_outright_stroke_win() -> None:
 
 
 def test_longest_drive_breaks_the_tie_when_closest_to_pin_cannot() -> None:
-    result = score_hole({A: 4, B: 4, C: 5}, closest_to_pin=C, longest_drive=A)
+    """Neither tied player reached the green, so level 2 passes to level 3."""
+    result = score_hole({A: 4, B: 4, C: 5}, closest_to_pin=None, longest_drive=A)
 
     assert result.winner == A
     assert result.decided_by is DecidedBy.LONGEST_DRIVE
@@ -86,11 +93,21 @@ def test_closest_to_pin_takes_precedence_over_longest_drive() -> None:
     assert result.decided_by is DecidedBy.CLOSEST_TO_PIN
 
 
-def test_longest_drive_is_ignored_when_that_player_is_not_tied() -> None:
-    result = score_hole({A: 4, B: 4, C: 6}, longest_drive=C)
+def test_longest_drive_must_name_a_player_tied_on_strokes() -> None:
+    with pytest.raises(ValueError, match="not tied for fewest strokes"):
+        score_hole({A: 4, B: 4, C: 6}, longest_drive=C)
 
-    assert result.winner is None
-    assert result.decided_by is DecidedBy.NO_WINNER
+
+def test_tie_break_arguments_are_not_checked_when_there_is_no_tie() -> None:
+    """An outright stroke winner takes the hole whatever else is passed.
+
+    With no tie there is no contest to be part of, so a stray argument is
+    harmless rather than an error.
+    """
+    result = score_hole({A: 3, B: 4, C: 5}, closest_to_pin=C, longest_drive=B)
+
+    assert result.winner == A
+    assert result.decided_by is DecidedBy.STROKES
 
 
 # --- No winner --------------------------------------------------------------

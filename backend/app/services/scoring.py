@@ -52,24 +52,32 @@ def score_hole(
     fairway. Holes are never halved — if no level separates them, nobody wins and
     everyone scores zero.
 
-    A flag only breaks the tie when the flagged player is themselves tied on
-    strokes. If A and B are tied but C was closest to the pin, that level cannot
-    separate A from B and the cascade falls through. "No winner" is therefore a
-    normal outcome, not an edge case.
+    Closest to the pin and longest drive are contested **only among the players
+    tied on strokes**. If A and B tie, the question is which of A and B was
+    closer to the pin; C's ball is irrelevant however near the hole it finished.
+    Naming a player who isn't tied is therefore a caller error, not something to
+    quietly ignore — silently returning "no winner" would hide a real data bug
+    behind a plausible-looking result.
+
+    Both tie-break arguments are only consulted when there is actually a tie. An
+    outright stroke winner takes the hole regardless of what is passed.
 
     Args:
         strokes: Strokes taken this hole, for every player in the group.
-        closest_to_pin: The single player the group flagged as closest to the pin,
-            if any. Ignored unless they are tied for fewest strokes.
-        longest_drive: The single player the group flagged as having the longest
-            drive that *finished on the fairway*, if any. Ignored unless they are
-            tied for fewest strokes.
+        closest_to_pin: Whichever of the *tied* players was closest to the pin.
+            None means this level cannot separate them — nobody reached the green
+            or the group could not tell.
+        longest_drive: Whichever of the *tied* players hit the longest drive that
+            *finished on the fairway*. None means this level cannot separate them
+            — typically because no tied player found the fairway.
 
     Returns:
         The winner (or None), which level decided it, and each player's points.
 
     Raises:
-        ValueError: If no strokes were supplied, or any stroke count is below 1.
+        ValueError: If no strokes were supplied, any stroke count is below 1, or
+            a tie-break argument names a player who is not tied for fewest
+            strokes.
     """
     if not strokes:
         raise ValueError("Cannot score a hole with no players")
@@ -84,14 +92,31 @@ def score_hole(
     if len(tied) == 1:
         return _hole_result(next(iter(tied)), DecidedBy.STROKES, strokes)
 
-    # Levels 2 and 3. A flag is only usable if that player is one of the tied.
-    if closest_to_pin is not None and closest_to_pin in tied:
+    # Levels 2 and 3 are contested only among the players tied on strokes.
+    _require_tied("closest_to_pin", closest_to_pin, tied)
+    _require_tied("longest_drive", longest_drive, tied)
+
+    if closest_to_pin is not None:
         return _hole_result(closest_to_pin, DecidedBy.CLOSEST_TO_PIN, strokes)
 
-    if longest_drive is not None and longest_drive in tied:
+    if longest_drive is not None:
         return _hole_result(longest_drive, DecidedBy.LONGEST_DRIVE, strokes)
 
     return _hole_result(None, DecidedBy.NO_WINNER, strokes)
+
+
+def _require_tied(
+    argument: str,
+    flagged: ParticipantId | None,
+    tied: set[ParticipantId],
+) -> None:
+    """Reject a tie-break argument naming a player who isn't tied on strokes."""
+    if flagged is not None and flagged not in tied:
+        raise ValueError(
+            f"{argument}={flagged} is not tied for fewest strokes. Only players "
+            f"tied on strokes contest closest to the pin and longest drive; "
+            f"tied players are {sorted(str(pid) for pid in tied)}"
+        )
 
 
 def _hole_result(

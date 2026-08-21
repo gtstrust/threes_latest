@@ -83,7 +83,7 @@ None currently blocking. Scoring rules were settled in ADR-007.
 
 Worth revisiting after the pilot:
 
-- **How often does "nobody wins the hole" actually fire?** Because a tie-break level only helps when
-  the flagged player is one of the tied players, no-winner holes may turn out to be common enough to
-  feel unsatisfying. Worth measuring on the day before deciding whether the cascade needs a fourth
-  level.
+- **How often does "nobody wins the hole" actually fire?** It should be uncommon — the tie-breaks are
+  contested only among the tied players, so a hole only goes unwon when those players genuinely can't
+  be separated (typically none found the fairway). Worth confirming against real play before deciding
+  whether the cascade needs a fourth level.
