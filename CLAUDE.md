@@ -6,7 +6,11 @@ Threes is a short-form competitive golf platform where players compete over 3-ho
 
 **MVP Target:** Corporate Golf Days — structured events where an organiser controls the entire course.
 
-**MVP is a lean validation build** — web-only, no native apps, no AI features, no offline-first sync, no Fun Rounds. See [`THREES_STRATEGY.md`](../THREES_STRATEGY.md) for the rationale and [`ROADMAP.md`](./ROADMAP.md) for what's Phase 1 vs Phase 2. The goal is to run one real corporate golf day, paid for via the per-event organiser fee, before investing in the full-featured build.
+**MVP is a lean validation build** — web-only, no native apps, no AI features, no offline-first sync, no Fun Rounds. See [`THREES_STRATEGY.md`](./THREES_STRATEGY.md) for the rationale and [`ROADMAP.md`](./ROADMAP.md) for what's Phase 1 vs Phase 2. The goal is to run one real corporate golf day, paid for via the per-event organiser fee, before investing in the full-featured build.
+
+## Current Implementation Status
+
+Only `backend/` exists so far — `frontend/` and `docs/` in the structure below are the target layout, not yet created. Within the backend, only `auth` and `players` are implemented end-to-end; `tournaments`, `rounds`, `groups`, and `scores` are stub routers returning `501`, and their business-logic modules (`services/grouping.py`, `services/scoring.py`, `services/tournament.py`) are empty placeholders. See [`backend/CLAUDE.md`](./backend/CLAUDE.md) for backend-specific commands, the auth/JWT model, and implementation gotchas (e.g. new models must be registered in `app/models/__init__.py` or Alembic autogenerate silently no-ops).
 
 ## Repository Structure
 
@@ -74,6 +78,9 @@ threes/
 ## Development Commands
 
 ### Backend (FastAPI)
+
+See [`backend/CLAUDE.md`](./backend/CLAUDE.md) for the full picture — notably that tests require a
+real Postgres (no mocked-DB path) and the local Postgres container publishes on host port 5433, not 5432.
 
 ```bash
 # Setup

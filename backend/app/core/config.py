@@ -10,7 +10,9 @@ class Settings(BaseSettings):
     supabase_key: str | None = None
     supabase_jwt_secret: str | None = None
 
-    database_url: str = "postgresql+asyncpg://threes:threes@localhost:5432/threes_dev"
+    # Port 5433, not 5432 — docker-compose publishes Postgres there to avoid clashing
+    # with a locally-installed Postgres. Matches .env.example.
+    database_url: str = "postgresql+asyncpg://threes:threes@localhost:5433/threes_dev"
 
     cors_origins: str = "http://localhost:3000,http://localhost:8080"
 

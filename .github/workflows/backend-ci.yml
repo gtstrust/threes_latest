@@ -1,0 +1,73 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    # Tests need a real Postgres — tests/conftest.py creates and drops all tables
+    # against settings.database_url per test. There is no mocked-DB path.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: threes
+          POSTGRES_PASSWORD: threes
+          POSTGRES_DB: threes_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U threes"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      # The service container is published on the runner's localhost:5432 (unlike
+      # docker-compose, which uses 5433 locally to dodge a host Postgres).
+      # TEST_DATABASE_URL is what the suite reads; DATABASE_URL is for alembic.
+      TEST_DATABASE_URL: postgresql+asyncpg://threes:threes@localhost:5432/threes_test
+      DATABASE_URL: postgresql+asyncpg://threes:threes@localhost:5432/threes_test
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # Pin to the documented floor (pyproject requires-python = ">=3.12",
+          # mypy targets 3.12) so newer-syntax regressions get caught here.
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Format check
+        run: ruff format --check .
+
+      - name: Type check
+        run: mypy app/
+
+      - name: Migrations apply cleanly
+        run: alembic upgrade head
+
+      - name: Test
+        run: pytest --cov=app tests/
