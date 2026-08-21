@@ -1,3 +1,4 @@
+import os
 import uuid
 from collections.abc import AsyncGenerator
 
@@ -5,6 +6,7 @@ import jwt
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.engine.url import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
@@ -12,12 +14,41 @@ from app.core.db import get_db
 from app.main import app
 from app.models.base import Base
 
-TEST_JWT_SECRET = "dev-local-only-secret-change-me"
+TEST_JWT_SECRET = "dev-local-only-secret-change-me!"
+
+# Deliberately NOT settings.database_url: .env normally points at a real Supabase
+# project, and the `engine` fixture below runs drop_all. Tests get their own URL.
+TEST_DATABASE_URL = os.getenv(
+    "TEST_DATABASE_URL",
+    "postgresql+asyncpg://threes:threes@localhost:5433/threes_dev",
+)
+
+# Hostnames we accept as "a database it is safe to drop every table in".
+_LOCAL_DB_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "postgres"})
+
+
+def _assert_safe_to_drop(url: str) -> None:
+    """Abort the run if the test database isn't local.
+
+    The `engine` fixture calls Base.metadata.drop_all. Pointed at a hosted database
+    that silently destroys real data, so this refuses to run anywhere but localhost
+    or the docker-compose `postgres` service.
+    """
+    host = make_url(url).host
+    if host not in _LOCAL_DB_HOSTS:
+        pytest.exit(
+            f"Refusing to run tests against non-local database host {host!r}. "
+            "The suite drops every table. Set TEST_DATABASE_URL to a local database.",
+            returncode=1,
+        )
+
+
+_assert_safe_to_drop(TEST_DATABASE_URL)
 
 
 @pytest_asyncio.fixture
 async def engine():
-    engine = create_async_engine(settings.database_url)
+    engine = create_async_engine(TEST_DATABASE_URL)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield engine
