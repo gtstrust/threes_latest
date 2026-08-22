@@ -212,6 +212,19 @@ The overall leaderboard breaks level players on **fewest total strokes across th
 
 **Forward compatibility with handicaps (Phase 2):** because the client submits only raw strokes (ADR-002) and points are always derived server-side, net scoring can be layered on later without changing the score-entry path or re-migrating stored scores.
 
+### ADR-009: Scores are stored in two tables — reported and derived
+A scored hole is written to **two** tables. `hole_scores` is what the players reported: one row per participant, holding their strokes and the points those strokes earned them. `hole_results` is what the ADR-007 cascade made of it: one row per group per hole, holding the winner, which of the three levels decided it, and the tie-break answer if one was used.
+
+The split is along the line between **fact and judgement**. Strokes are reported by the group and are the only thing the client sends (ADR-002); everything in `hole_results` is the server's conclusion about them. Keeping them in one table would mean a row that is partly evidence and partly verdict, with no way to say which columns a correction is allowed to touch.
+
+**Points live on the score row, not in the result row.** They are per-participant, so they belong beside each participant's strokes — and it makes the leaderboard `SUM(points) GROUP BY participant_id` rather than a walk over per-hole verdicts. Points are stored rather than recomputed on read because ADR-007's `decided_by` exists so a disputed hole can be audited, and an audit trail that is recalculated on demand records nothing: it would only ever show what today's code thinks, not what the group was told on the day.
+
+**The database enforces ADR-007, not just the service.** Three check constraints on `hole_results`: a tie-break participant may be stored only when `decided_by` names that level ("nothing is recorded unless it actually decided a hole"), and `winner_participant_id IS NULL` exactly when `decided_by = 'no_winner'` — holes are never halved, so the alternative to one winner is none, never a shared one. These are invariants of the format rather than of one code path, and a wrong row is worse than a rejected write: it is a player told they won a hole they did not.
+
+**The cost, accepted:** the two tables can disagree if anything writes one without the other, so both are always written together by `ScoreEntryService`, and re-submitting a hole rewrites both. That single upsert path is also how a correction and a late tie-break answer arrive, which is why there is no separate endpoint for either.
+
+**Rejected:** storing only strokes and calling `score_hole` on every read. It is simpler and cannot drift, but it discards `decided_by` — the record of *why* a hole was awarded — and makes the leaderboard recompute the entire field on every poll, which is exactly the read path M8 needs to be cheap.
+
 ## Coding Conventions
 
 ### Python (Backend)

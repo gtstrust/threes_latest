@@ -142,16 +142,18 @@ Two consequences worth knowing before changing them:
 - **`group_sizes` never returns a group of 1.** A remainder of one trades a three for two pairs,
   so 4 players is 2+2 and 7 is 3+2+2 — not 3+1 or 3+3+1.
 
-### Scoring: two tables, and one deliberate import
+### Scoring: the two tables, and one deliberate import
 
-`hole_scores` is what players reported (strokes, plus the points the server derived); `hole_results`
-is what the cascade decided. Re-submitting a hole rewrites both — that is how a mis-key is
-corrected *and* how a tie-break answer arrives, since ADR-007 only asks the question once a tie
-appears. A submission that ties reports `tied_participants` so the client knows who to ask.
+**`hole_scores` (reported) and `hole_results` (derived) are split for the reasons in ADR-009** —
+read that before changing either. What matters when working in this code: both are always written
+together by `ScoreEntryService`, and re-submitting a hole rewrites both. That single upsert path is
+how a mis-key is corrected *and* how a tie-break answer arrives, since ADR-007 only asks the
+question once a tie appears; a submission that ties reports `tied_participants` so the client knows
+which players to ask. Never write one table without the other.
 
-Three check constraints on `hole_results` enforce ADR-007 in the database rather than trusting the
-service: a tie-break id may only be stored when `decided_by` names that level, and
-`winner IS NULL` exactly when `decided_by = 'no_winner'` (holes are never halved).
+The three check constraints on `hole_results` are not belt-and-braces — they are the enforcement
+point for ADR-007's "nothing is recorded unless it decided a hole" and "holes are never halved".
+Service-level validation is the convenience; the constraints are the guarantee.
 
 `app/models/score.py` imports `DecidedBy` from `app/services/scoring.py` — the one place a model
 reaches into the service layer. It is deliberate: `DecidedBy` is part of `score_hole`'s return
