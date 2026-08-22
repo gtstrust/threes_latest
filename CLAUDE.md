@@ -10,7 +10,27 @@ Threes is a short-form competitive golf platform where players compete over 3-ho
 
 ## Current Implementation Status
 
-Only `backend/` exists so far — `frontend/` and `docs/` in the structure below are the target layout, not yet created. Within the backend, only `auth` and `players` are implemented end-to-end; `tournaments`, `rounds`, `groups`, and `scores` are stub routers returning `501`, and their business-logic modules (`services/grouping.py`, `services/scoring.py`, `services/tournament.py`) are empty placeholders. See [`backend/CLAUDE.md`](./backend/CLAUDE.md) for backend-specific commands, the auth/JWT model, and implementation gotchas (e.g. new models must be registered in `app/models/__init__.py` or Alembic autogenerate silently no-ops).
+Only `backend/` exists so far — `frontend/` and `docs/` in the structure below are the target
+layout, not yet created.
+
+Implemented end-to-end in the backend: **auth, players, courses/holes, tournaments (with the
+ADR-003 state machine), participants, and rounds/groups (the shotgun-start draw)**. The pure
+business-logic modules `services/grouping.py` (ADR-004) and `services/scoring.py` (ADR-007) are
+written and exhaustively unit-tested, but **`scoring.py` is not yet wired to anything** — no
+route, service, or model persists a score.
+
+Not built: **`app/api/scores.py` is the last stub router**, returning `501`. There is no
+`HoleScore` model, no score submission, no points persistence, and no leaderboard endpoint —
+i.e. `ROADMAP.md` M7 and M8. `rank_leaderboard` in `services/scoring.py` exists but has no
+caller.
+
+`ROADMAP.md`'s backend table lags reality — it still marks M2 (tournaments) as "Next" and M4
+(grouping/scoring) as not started, though both have landed. Trust this section and the code over
+that table.
+
+See [`backend/CLAUDE.md`](./backend/CLAUDE.md) for backend-specific commands, the auth/JWT model,
+and implementation gotchas (e.g. new models must be registered in `app/models/__init__.py` or
+Alembic autogenerate silently no-ops).
 
 ## Repository Structure
 
@@ -23,7 +43,9 @@ threes/
 │   │   │   ├── tournaments.py
 │   │   │   ├── rounds.py
 │   │   │   ├── groups.py
-│   │   │   ├── scores.py
+│   │   │   ├── scores.py     # stub — returns 501
+│   │   │   ├── courses.py
+│   │   │   ├── participants.py
 │   │   │   └── players.py
 │   │   ├── core/             # Config, security, dependencies
 │   │   │   ├── config.py
@@ -32,10 +54,12 @@ threes/
 │   │   ├── models/           # SQLAlchemy ORM models
 │   │   ├── schemas/          # Pydantic request/response schemas
 │   │   ├── services/         # Business logic layer
-│   │   │   ├── scoring.py    # Points calculation engine
+│   │   │   ├── scoring.py    # Points engine (pure; not yet wired to a route)
 │   │   │   ├── tournament.py # Tournament state machine
-│   │   │   ├── grouping.py   # Group generation algorithm
-│   │   │   └── ai.py         # Claude API integration
+│   │   │   ├── grouping.py   # Draw: group sizes + shotgun-start loops (pure)
+│   │   │   ├── round.py      # Round lifecycle — where draw + field + course meet
+│   │   │   ├── course.py
+│   │   │   └── participant.py
 │   │   ├── repositories/     # Database access layer
 │   │   └── main.py           # FastAPI app entry point
 │   ├── migrations/           # Alembic migrations
@@ -224,15 +248,17 @@ The overall leaderboard breaks level players on **fewest total strokes across th
 
 ### Backend (.env)
 
+Only these are read (`app/core/config.py`; `extra="ignore"`, so anything else in `.env` is
+silently dropped rather than rejected). No `ANTHROPIC_API_KEY` or `EMAIL_FROM` — AI generation
+and email are Phase 2/3.
+
 ```
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your-service-role-key
 SUPABASE_JWT_SECRET=your-jwt-secret
-DATABASE_URL=postgresql+asyncpg://user:pass@host:5432/dbname
-ANTHROPIC_API_KEY=sk-ant-...
+DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5433/threes_dev
 ENVIRONMENT=development
 CORS_ORIGINS=http://localhost:3000,http://localhost:8080
-EMAIL_FROM=noreply@threes.golf
 ```
 
 ### Frontend (.env)

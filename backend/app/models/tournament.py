@@ -73,8 +73,9 @@ class Tournament(Base, TimestampMixin):
     )
 
     # Nullable so an event can be set up before the venue is booked, but a
-    # tournament cannot reach ROUND_IN_PROGRESS without one — enforced as a
-    # precondition in TournamentService.transition, not in the state machine.
+    # tournament cannot reach ROUND_IN_PROGRESS without one — enforced in
+    # RoundService.draw_round rather than in the state machine, because per
+    # ADR-008 the draw is the only route to that status.
     course_id: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("courses.id"),

@@ -37,8 +37,14 @@ suite refuses to start against any non-local host, because it drops everything.
 ```bash
 pytest
 pytest --cov=app tests/
-pytest tests/test_players.py::test_players_full_slice   # single test
+pytest tests/test_scoring.py                            # one file
+pytest tests/test_scoring.py::test_only_the_winner_scores   # one test
+pytest -k "loop"                                        # by name
 ```
+
+Note that **even the pure unit tests need Postgres up**: `conftest.py` connects at import time
+(module level) to create `threes_test` if it's missing, so `pytest tests/test_scoring.py` fails
+without a database despite `scoring.py` never touching one.
 
 ### Lint / type-check
 
@@ -47,6 +53,13 @@ ruff check .
 ruff format .
 mypy app/     # strict mode is on (pyproject.toml: [tool.mypy] strict = true)
 ```
+
+CI additionally runs `ruff format --check .` and `alembic upgrade head`, so an unformatted file
+or a migration that won't apply fails the build even though `pytest` passes locally.
+
+The local `.venv` here is **Python 3.14**, but `requires-python` is `>=3.12`, mypy targets 3.12,
+and CI pins 3.12. `mypy app/` is what catches 3.13+-only syntax before CI does — running it is
+not optional.
 
 ### Migrations
 
@@ -69,8 +82,9 @@ schemas (`app/schemas/`) are the request/response contract and are distinct from
 models — services convert between them (e.g. `PlayerRead.model_validate(player)`).
 
 Follow the `players` vertical slice (`api/players.py` → `services/player.py` →
-`repositories/player.py` → `models/player.py` → `schemas/player.py`) as the template for
-implementing any new resource.
+`repositories/player.py` → `models/player.py` → `schemas/player.py`) as the minimal template for
+a new resource; `rounds` is the fuller one, showing domain errors, authorization guards, and a
+service that coordinates several repositories.
 
 ### Auth model — read this before touching anything auth-related
 
@@ -98,13 +112,76 @@ value for the `backend` service for this reason.
 
 ### Implementation status
 
-Only `auth` and `players` are implemented end-to-end. `tournaments`, `rounds`, `groups`, and
-`scores` (`app/api/*.py`) are stub routers that unconditionally return 501. The corresponding
-business-logic modules — `services/grouping.py` (ADR-004 group-of-3 algorithm),
-`services/scoring.py` (points + countback engine), `services/tournament.py` (ADR-003 state
-machine) — are empty files containing only a docstring pointing back to the relevant ADR in the
-root `CLAUDE.md`. When implementing one of these, follow the `players` slice's layering rather
-than inventing a new pattern.
+`auth`, `players`, `courses`, `tournaments`, `participants`, `rounds` and `groups` are all
+implemented end-to-end. **`app/api/scores.py` is the only remaining stub** — it returns 501, and
+there is no `HoleScore` model or score persistence behind it.
+
+`services/scoring.py` is fully written and exhaustively unit-tested but **has no caller yet**:
+nothing invokes `score_hole` or `rank_leaderboard` outside `tests/test_scoring.py`. Wiring it up
+(a `HoleScore` model, a migration, a scores service, and a leaderboard endpoint) is the next
+slice — M7/M8 in `../ROADMAP.md`. Follow the `rounds` slice as the template; it's the most recent
+and the most complete example of the layering.
+
+### The pure core
+
+Two modules are deliberately pure — synchronous, no session, no I/O, plain data in and out — so
+the platform's most critical logic is testable without fixtures:
+
+- `services/scoring.py` — the ADR-007 cascade (`score_hole`) and `rank_leaderboard`.
+- `services/grouping.py` — `group_sizes` / `build_groups` / `build_loops` / `allocate_loops`.
+
+Keep them that way. Anything needing a database belongs in the calling service.
+
+Two consequences worth knowing before changing them:
+
+- **`build_groups` is deterministic and order-preserving.** That's what makes exact-grouping
+  assertions possible in tests. The randomness lives in `RoundService.draw_round`, which shuffles
+  the participant list before calling it for round 2 onwards (round 1 stays in registration order
+  so people play with whoever they signed up alongside).
+- **`group_sizes` never returns a group of 1.** A remainder of one trades a three for two pairs,
+  so 4 players is 2+2 and 7 is 3+2+2 — not 3+1 or 3+3+1.
+
+### Domain errors and how routes map them
+
+Each service defines its own exception hierarchy rooted at a `*Error` base
+(`TournamentError`, `CourseError`, `ParticipantError`, `RoundError`) and **raises rather than
+returning status codes**; the router catches each and maps it to an `HTTPException`. Services
+never import `fastapi`. When adding a rule, add an exception type next to its siblings and map it
+in the route — don't reach for `HTTPException` from inside a service.
+
+A recurring one: every service that writes a row foreign-keyed to `players` first checks the
+caller's profile exists (`OrganiserProfileMissing`, `CreatorProfileMissing`,
+`PlayerProfileMissing`). The row is created lazily by `POST /players`, so without the check this
+surfaces as a raw integrity error.
+
+### Authorization
+
+Beyond "holds a valid JWT", three guards in `app/core/deps.py` carry all of it:
+
+- `require_course_owner` — courses are shared reference data, readable by anyone authenticated,
+  editable only by whoever created them.
+- `require_organiser` — anything that changes a tournament, its field, or its rounds.
+- `require_can_view` — reading a tournament: the organiser, or anyone in the field. Async, unlike
+  the other two, because it has to look the caller up in the participant list.
+
+These are plain functions, not FastAPI dependencies — the route fetches the tournament/course
+first (via its local `_get_or_404` helper) and then calls the guard.
+
+### Where the tournament lifecycle actually lives
+
+Splitting ADR-003 across two files is intentional and easy to get wrong:
+
+- `services/tournament.py` owns `ALLOWED_TRANSITIONS` and the registration transitions plus
+  `ROUND_COMPLETE → TOURNAMENT_COMPLETE`, via `POST /tournaments/{id}/status`.
+- `services/round.py` owns the two *play* statuses. `ROUND_IN_PROGRESS` and `ROUND_COMPLETE`
+  cannot be set through the status endpoint at all — `_reject_round_driven` refuses them with a
+  pointer to the right endpoint (ADR-008). Drawing a round starts play; completing a round ends
+  it.
+
+Because of that, **preconditions for starting play belong in `RoundService.draw_round`, not in
+`TournamentService.transition`** — a check placed on the status endpoint can never fire, since
+the target is rejected before it's reached. The "no course set" check moved for exactly this
+reason.
 
 ### Testing pattern
 
