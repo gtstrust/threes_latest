@@ -24,9 +24,10 @@ Web-only. No native apps, no AI features, no offline-first sync, no Fun Rounds
 | M2 | Tournament domain + ADR-003 state machine + organiser authz | ⬜ Next |
 | M3 | Participants, including Virtual Players | ⬜ |
 | M4 | Grouping (ADR-004) + scoring engine (ADR-007) — pure, exhaustively tested | ⬜ |
-| M5 | Rounds and group generation | ⬜ |
-| M6 | Score submission + points persistence (ADR-002) | ⬜ |
-| M7 | Leaderboard + Supabase Realtime | ⬜ |
+| M5 | Courses and holes; tournaments linked to a course | ✅ Done |
+| M6 | Rounds, round_holes, and group generation | ⬜ |
+| M7 | Score submission + points persistence (ADR-002) | ⬜ |
+| M8 | Leaderboard + Supabase Realtime | ⬜ |
 
 Scoring rules are settled — see ADR-007. Holes are never halved; a hole has one winner or none,
 decided by strokes → closest to the pin → longest drive on the fairway. Points are integers.

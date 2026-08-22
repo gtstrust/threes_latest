@@ -72,5 +72,13 @@ class Tournament(Base, TimestampMixin):
         default=TournamentFormat.ROUND_ROBIN,
     )
 
-    course_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Nullable so an event can be set up before the venue is booked, but a
+    # tournament cannot reach ROUND_IN_PROGRESS without one — enforced as a
+    # precondition in TournamentService.transition, not in the state machine.
+    course_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("courses.id"),
+        nullable=True,
+        index=True,
+    )
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

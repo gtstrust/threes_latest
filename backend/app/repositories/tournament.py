@@ -28,7 +28,7 @@ class TournamentRepository:
             organiser_id=organiser_id,
             name=payload.name,
             format=payload.format,
-            course_name=payload.course_name,
+            course_id=payload.course_id,
             scheduled_at=payload.scheduled_at,
             status=TournamentStatus.CREATED,
         )
@@ -39,7 +39,7 @@ class TournamentRepository:
 
     async def update(self, tournament: Tournament, updates: TournamentUpdate) -> Tournament:
         # exclude_unset so an omitted field is left alone, while an explicit null
-        # can still clear course_name or scheduled_at.
+        # can still clear course_id or scheduled_at.
         for field, value in updates.model_dump(exclude_unset=True).items():
             setattr(tournament, field, value)
         await self._session.flush()

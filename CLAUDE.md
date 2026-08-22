@@ -238,10 +238,22 @@ API_BASE_URL=http://localhost:8000
 
 ## Key Domain Concepts
 
-- **Tournament**: A structured competition with rounds, groups, and a bracket.
-- **Round**: One stage of a tournament. Each round has multiple groups playing simultaneously.
+- **Tournament**: A structured competition with rounds and groups, played at one **Course**.
+  `course_id` is nullable so an event can be set up before the venue is booked, but a tournament
+  cannot enter `ROUND_IN_PROGRESS` without one — there'd be no holes to play.
+- **Course**: A golf course. **Shared reference data**, not owned by a tournament: two organisers
+  running events at the same club point at one record. Names are unique *ignoring case*, so
+  "Royal Melbourne" and "royal melbourne" can't both exist. Readable by anyone authenticated,
+  editable only by whoever created it.
+- **Hole**: One hole of a course — `hole_number`, plus optional `par` and `stroke_index`. Both are
+  optional because scoring never uses par (ADR-007 is strokes alone), so an organiser can enter
+  three hole numbers and start. `stroke_index` is present ready for Phase 2 handicaps. A course only
+  needs the holes actually being played — a 3-hole loop needs 3, not 18.
+- **Round**: One stage of a tournament. Each round has multiple groups playing simultaneously, over
+  exactly 3 holes drawn from the tournament's course.
 - **Group**: 2–3 players playing the same 3 holes together. One group = one match.
-- **Hole Score**: The number of strokes a player took on a single hole.
+- **Hole Score**: The number of strokes a player took on a single hole. Foreign-keys to a `Hole`
+  rather than storing a bare hole number, so score → hole → course holds together.
 - **Points**: 1 pt for winning a hole, 0 pts otherwise. **Holes are never halved** — see ADR-007 for
   the tie-break cascade. Points are always integers; there are no half-points.
 - **Closest to the Pin (CTP)**: Tie-break level 2. Asked only when players tie on strokes, and only

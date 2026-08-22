@@ -22,6 +22,19 @@ async def _create_tournament(client: AsyncClient, headers, **overrides):
     return response.json()
 
 
+async def _create_course(client: AsyncClient, headers, name: str = "Royal Melbourne") -> str:
+    response = await client.post("/courses", headers=headers, json={"name": name})
+    assert response.status_code == 201, response.text
+    return response.json()["id"]
+
+
+async def _playable_tournament(client: AsyncClient, headers, **overrides) -> str:
+    """A tournament with a course attached, so it can actually start a round."""
+    course_id = await _create_course(client, headers)
+    tournament = await _create_tournament(client, headers, course_id=course_id, **overrides)
+    return tournament["id"]
+
+
 async def _advance_to(client: AsyncClient, headers, tournament_id: str, target: TournamentStatus):
     response = await client.post(
         f"/tournaments/{tournament_id}/status",
@@ -121,35 +134,36 @@ async def test_unknown_tournament_is_404(client, make_token):
 async def test_organiser_can_update_details(client, make_token):
     headers = await _organiser(client, make_token)
     tournament = await _create_tournament(client, headers)
+    course_id = await _create_course(client, headers)
 
     response = await client.patch(
         f"/tournaments/{tournament['id']}",
         headers=headers,
-        json={"name": "Renamed", "course_name": "Royal Melbourne"},
+        json={"name": "Renamed", "course_id": course_id},
     )
 
     assert response.status_code == 200
     assert response.json()["name"] == "Renamed"
-    assert response.json()["course_name"] == "Royal Melbourne"
+    assert response.json()["course_id"] == course_id
 
 
 @pytest.mark.asyncio
 async def test_omitted_fields_are_left_alone_on_update(client, make_token):
     headers = await _organiser(client, make_token)
-    tournament = await _create_tournament(client, headers, course_name="Kingston Heath")
+    course_id = await _create_course(client, headers)
+    tournament = await _create_tournament(client, headers, course_id=course_id)
 
     response = await client.patch(
         f"/tournaments/{tournament['id']}", headers=headers, json={"name": "Renamed"}
     )
 
-    assert response.json()["course_name"] == "Kingston Heath"
+    assert response.json()["course_id"] == course_id
 
 
 @pytest.mark.asyncio
 async def test_the_full_lifecycle_can_be_walked(client, make_token):
     headers = await _organiser(client, make_token)
-    tournament = await _create_tournament(client, headers)
-    tournament_id = tournament["id"]
+    tournament_id = await _playable_tournament(client, headers)
 
     for target in (
         TournamentStatus.REGISTRATION_OPEN,
@@ -164,7 +178,7 @@ async def test_the_full_lifecycle_can_be_walked(client, make_token):
 @pytest.mark.asyncio
 async def test_a_finished_round_can_start_another(client, make_token):
     headers = await _organiser(client, make_token)
-    tournament_id = (await _create_tournament(client, headers))["id"]
+    tournament_id = await _playable_tournament(client, headers)
 
     for target in (
         TournamentStatus.REGISTRATION_OPEN,
@@ -194,7 +208,7 @@ async def test_skipping_a_state_conflicts(client, make_token):
 @pytest.mark.asyncio
 async def test_a_completed_tournament_cannot_be_restarted(client, make_token):
     headers = await _organiser(client, make_token)
-    tournament_id = (await _create_tournament(client, headers))["id"]
+    tournament_id = await _playable_tournament(client, headers)
 
     for target in (
         TournamentStatus.REGISTRATION_OPEN,
@@ -235,6 +249,54 @@ async def test_a_blank_name_is_rejected(client, make_token):
     response = await client.post("/tournaments", headers=headers, json={"name": ""})
 
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_a_round_cannot_start_without_a_course(client, make_token):
+    """There are no holes to play until a course is linked."""
+    headers = await _organiser(client, make_token)
+    tournament_id = (await _create_tournament(client, headers))["id"]
+
+    await _advance_to(client, headers, tournament_id, TournamentStatus.REGISTRATION_OPEN)
+    await _advance_to(client, headers, tournament_id, TournamentStatus.REGISTRATION_CLOSED)
+
+    response = await client.post(
+        f"/tournaments/{tournament_id}/status",
+        headers=headers,
+        json={"status": TournamentStatus.ROUND_IN_PROGRESS.value},
+    )
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    # Distinguishable from an ordinary illegal transition: the move itself is
+    # legal from REGISTRATION_CLOSED, the tournament just isn't ready for it.
+    assert "no course set" in detail
+    assert "Cannot move a tournament" not in detail
+
+
+@pytest.mark.asyncio
+async def test_attaching_a_course_unblocks_the_round(client, make_token):
+    headers = await _organiser(client, make_token)
+    tournament_id = (await _create_tournament(client, headers))["id"]
+    await _advance_to(client, headers, tournament_id, TournamentStatus.REGISTRATION_OPEN)
+    await _advance_to(client, headers, tournament_id, TournamentStatus.REGISTRATION_CLOSED)
+
+    course_id = await _create_course(client, headers)
+    await client.patch(
+        f"/tournaments/{tournament_id}", headers=headers, json={"course_id": course_id}
+    )
+
+    started = await _advance_to(client, headers, tournament_id, TournamentStatus.ROUND_IN_PROGRESS)
+    assert started["status"] == TournamentStatus.ROUND_IN_PROGRESS.value
+
+
+@pytest.mark.asyncio
+async def test_a_tournament_can_be_created_before_a_venue_is_booked(client, make_token):
+    headers = await _organiser(client, make_token)
+
+    tournament = await _create_tournament(client, headers)
+
+    assert tournament["course_id"] is None
 
 
 @pytest.mark.asyncio
