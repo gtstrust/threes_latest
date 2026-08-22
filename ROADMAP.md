@@ -25,7 +25,7 @@ Web-only. No native apps, no AI features, no offline-first sync, no Fun Rounds
 | M3 | Participants, including Virtual Players | ✅ Done |
 | M4 | Grouping (ADR-004) + scoring engine (ADR-007) — pure, exhaustively tested | ⬜ |
 | M5 | Courses and holes; tournaments linked to a course | ✅ Done |
-| M6 | Rounds, round_holes, and group generation | ⬜ |
+| M6 | Rounds, groups, and the shotgun-start draw | ✅ Done |
 | M7 | Score submission + points persistence (ADR-002) | ⬜ |
 | M8 | Leaderboard + Supabase Realtime | ⬜ |
 

@@ -1,16 +1,20 @@
-"""Group generation algorithm — see CLAUDE.md ADR-004.
+"""The draw — group generation (ADR-004) and shotgun-start loop allocation.
 
-Pure and synchronous, like the scoring engine: takes participant ids, returns
-groups. Persistence lives in the round service that calls this.
+Pure and synchronous, like the scoring engine: these take ids and return ids.
+Persistence, and the choice of what order to feed players in, live in the round
+service that calls this.
 """
 
 from collections.abc import Sequence
 from uuid import UUID
 
 ParticipantId = UUID
+HoleId = UUID
 
 MIN_GROUP_SIZE = 2
 MAX_GROUP_SIZE = 3
+
+HOLES_PER_LOOP = 3
 
 
 def group_sizes(count: int) -> list[int]:
@@ -66,3 +70,49 @@ def build_groups(participant_ids: Sequence[ParticipantId]) -> list[list[Particip
         groups.append(list(participant_ids[start : start + size]))
         start += size
     return groups
+
+
+def build_loops(hole_ids: Sequence[HoleId]) -> list[list[HoleId]]:
+    """Chunk a course's holes into consecutive 3-hole loops.
+
+    Holes are expected in playing order (by hole number), so holes 1-18 give six
+    loops: 1-3, 4-6, and so on. A remainder is simply unused — eight holes give
+    two loops, not two and a bit — because a group has to play three.
+
+    Raises:
+        ValueError: If there aren't enough holes for even one loop.
+    """
+    if len(hole_ids) < HOLES_PER_LOOP:
+        raise ValueError(
+            f"A loop needs {HOLES_PER_LOOP} holes; the course has only {len(hole_ids)} "
+            "hole(s) entered"
+        )
+
+    duplicates = len(hole_ids) - len(set(hole_ids))
+    if duplicates:
+        raise ValueError(f"hole_ids contains {duplicates} duplicate id(s)")
+
+    loop_count = len(hole_ids) // HOLES_PER_LOOP
+    return [
+        list(hole_ids[index * HOLES_PER_LOOP : (index + 1) * HOLES_PER_LOOP])
+        for index in range(loop_count)
+    ]
+
+
+def allocate_loops(group_count: int, loop_count: int) -> list[int]:
+    """Assign each group a loop index, sharing round-robin when loops run short.
+
+    A shotgun start wants every group on its own loop, but the course caps that:
+    18 holes make only six loops, so a 24-player field (eight groups) has to
+    double up. Groups seven and eight go back onto loops one and two, which is
+    what actually happens on a busy course — they tee off staggered.
+
+    Raises:
+        ValueError: If there are no loops to allocate, or a negative group count.
+    """
+    if loop_count < 1:
+        raise ValueError("Cannot allocate groups with no loops available")
+    if group_count < 0:
+        raise ValueError(f"Group count cannot be negative; got {group_count}")
+
+    return [index % loop_count for index in range(group_count)]

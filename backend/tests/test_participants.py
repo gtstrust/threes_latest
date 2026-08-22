@@ -20,7 +20,14 @@ async def _tournament(client: AsyncClient, headers, with_course: bool = True) ->
         course = await client.post(
             "/courses", headers=headers, json={"name": f"Course {uuid.uuid4()}"}
         )
-        payload["course_id"] = course.json()["id"]
+        course_id = course.json()["id"]
+        # Three holes, so a round can actually be drawn on it.
+        await client.put(
+            f"/courses/{course_id}/holes",
+            headers=headers,
+            json={"holes": [{"hole_number": n} for n in (1, 2, 3)]},
+        )
+        payload["course_id"] = course_id
     response = await client.post("/tournaments", headers=headers, json=payload)
     assert response.status_code == 201, response.text
     return response.json()["id"]
@@ -38,8 +45,10 @@ async def _open_registration(client: AsyncClient, headers, tournament_id: str) -
 
 
 async def _start_play(client: AsyncClient, headers, tournament_id: str) -> None:
+    """Close registration and draw a round — the only route to ROUND_IN_PROGRESS."""
     await _set_status(client, headers, tournament_id, TournamentStatus.REGISTRATION_CLOSED)
-    await _set_status(client, headers, tournament_id, TournamentStatus.ROUND_IN_PROGRESS)
+    drawn = await client.post(f"/tournaments/{tournament_id}/rounds", headers=headers)
+    assert drawn.status_code == 201, drawn.text
 
 
 # --- Self-registration ------------------------------------------------------
@@ -282,6 +291,12 @@ async def test_the_field_is_fixed_once_play_starts(client, make_token):
         f"/tournaments/{tournament_id}/participants/virtual",
         headers=organiser,
         json={"display_name": "Pat"},
+    )
+    # A draw needs at least two players to make a group.
+    await client.post(
+        f"/tournaments/{tournament_id}/participants/virtual",
+        headers=organiser,
+        json={"display_name": "Sam"},
     )
     await _start_play(client, organiser, tournament_id)
 
