@@ -26,15 +26,22 @@ class TournamentStatus(str, Enum):
 
 
 class TournamentFormat(str, Enum):
-    """Stored for every tournament, but only ROUND_ROBIN is implemented in MVP.
+    """Formats the database column can hold — not the ones the API will accept.
 
-    KNOCKOUT is accepted so the column doesn't need migrating later; bracket
-    progression (seeding, elimination, advancement) is explicitly out of scope —
-    see ROADMAP.md.
+    KNOCKOUT exists here so the column doesn't need migrating when bracket
+    progression is eventually built, but nothing implements it today and the API
+    rejects it. See SUPPORTED_FORMATS below.
     """
 
     ROUND_ROBIN = "ROUND_ROBIN"
     KNOCKOUT = "KNOCKOUT"
+
+
+# Formats the API will actually accept. KNOCKOUT is deliberately absent: there is
+# no seeding, elimination or advancement behind it, so a tournament created as a
+# knockout would run exactly like a round robin and the organiser would only find
+# out mid-event. Adding a format here is the single change needed to open it up.
+SUPPORTED_FORMATS: frozenset[TournamentFormat] = frozenset({TournamentFormat.ROUND_ROBIN})
 
 
 class Tournament(Base, TimestampMixin):

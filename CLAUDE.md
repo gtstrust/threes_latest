@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Threes is a short-form competitive golf platform where players compete over 3-hole loops instead of traditional 18-hole rounds. The platform manages tournaments (knockout and round-robin formats), casual "fun rounds," real-time leaderboards, and player profiles.
+Threes is a short-form competitive golf platform where players compete over 3-hole loops instead of traditional 18-hole rounds. The platform manages tournaments (round-robin; knockout is a long-term goal and the API rejects it today), casual "fun rounds," real-time leaderboards, and player profiles.
 
 **MVP Target:** Corporate Golf Days — structured events where an organiser controls the entire course.
 

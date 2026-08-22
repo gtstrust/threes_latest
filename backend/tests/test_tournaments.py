@@ -5,7 +5,7 @@ import uuid
 import pytest
 from httpx import AsyncClient
 
-from app.models.tournament import TournamentStatus
+from app.models.tournament import SUPPORTED_FORMATS, TournamentFormat, TournamentStatus
 
 
 async def _organiser(client: AsyncClient, make_token, email: str = "organiser@example.com"):
@@ -235,3 +235,40 @@ async def test_a_blank_name_is_rejected(client, make_token):
     response = await client.post("/tournaments", headers=headers, json={"name": ""})
 
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_knockout_is_rejected_until_it_is_implemented(client, make_token):
+    """Accepting it would fail silently — the event would just run as a round robin."""
+    headers = await _organiser(client, make_token)
+
+    response = await client.post(
+        "/tournaments",
+        headers=headers,
+        json={"name": "Knockout Cup", "format": TournamentFormat.KNOCKOUT.value},
+    )
+
+    assert response.status_code == 422
+    # The message must say it isn't built yet, not merely that it's invalid.
+    assert "not implemented" in response.text
+    assert TournamentFormat.ROUND_ROBIN.value in response.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("supported", sorted(SUPPORTED_FORMATS, key=lambda fmt: fmt.value))
+async def test_every_supported_format_is_accepted(client, make_token, supported):
+    """Parametrised over the constant so this widens by itself once knockout ships."""
+    headers = await _organiser(client, make_token, email=f"{supported.value.lower()}@example.com")
+
+    tournament = await _create_tournament(client, headers, format=supported.value)
+
+    assert tournament["format"] == supported.value
+
+
+@pytest.mark.asyncio
+async def test_format_defaults_to_round_robin_when_omitted(client, make_token):
+    headers = await _organiser(client, make_token)
+
+    tournament = await _create_tournament(client, headers)
+
+    assert tournament["format"] == TournamentFormat.ROUND_ROBIN.value

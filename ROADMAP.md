@@ -44,9 +44,15 @@ Not started; `frontend/` does not exist yet. Flutter **web only** for MVP.
 
 ### Explicitly out of scope for MVP
 
-Knockout **bracket progression** (seeding, elimination advancement). A corporate golf day needs
-rounds plus a cumulative leaderboard; `format` is stored as a column but knockout advancement is
-not implemented.
+Knockout **bracket progression** (seeding, elimination, advancement). A corporate golf day needs
+rounds plus a cumulative leaderboard.
+
+`KNOCKOUT` remains a value of the `tournament_format` database enum so the column won't need
+migrating when brackets are eventually built, but **the API rejects it** — `SUPPORTED_FORMATS` in
+`app/models/tournament.py` lists what `POST /tournaments` will accept. Accepting it would fail
+silently: the event would run exactly like a round robin and the organiser would only discover
+nobody was being eliminated partway through the day. Adding the value to `SUPPORTED_FORMATS` is the
+single change needed to open it back up.
 
 ---
 
