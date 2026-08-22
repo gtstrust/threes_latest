@@ -2,11 +2,15 @@
 
 ## Project Overview
 
-Threes is a short-form competitive golf platform where players compete over 3-hole loops instead of traditional 18-hole rounds. The platform manages tournaments (knockout and round-robin formats), casual "fun rounds," real-time leaderboards, and player profiles.
+Threes is a short-form competitive golf platform where players compete over 3-hole loops instead of traditional 18-hole rounds. The platform manages tournaments (round-robin; knockout is a long-term goal and the API rejects it today), casual "fun rounds," real-time leaderboards, and player profiles.
 
 **MVP Target:** Corporate Golf Days — structured events where an organiser controls the entire course.
 
-**MVP is a lean validation build** — web-only, no native apps, no AI features, no offline-first sync, no Fun Rounds. See [`THREES_STRATEGY.md`](../THREES_STRATEGY.md) for the rationale and [`ROADMAP.md`](./ROADMAP.md) for what's Phase 1 vs Phase 2. The goal is to run one real corporate golf day, paid for via the per-event organiser fee, before investing in the full-featured build.
+**MVP is a lean validation build** — web-only, no native apps, no AI features, no offline-first sync, no Fun Rounds. See [`THREES_STRATEGY.md`](./THREES_STRATEGY.md) for the rationale and [`ROADMAP.md`](./ROADMAP.md) for what's Phase 1 vs Phase 2. The goal is to run one real corporate golf day, paid for via the per-event organiser fee, before investing in the full-featured build.
+
+## Current Implementation Status
+
+Only `backend/` exists so far — `frontend/` and `docs/` in the structure below are the target layout, not yet created. Within the backend, only `auth` and `players` are implemented end-to-end; `tournaments`, `rounds`, `groups`, and `scores` are stub routers returning `501`, and their business-logic modules (`services/grouping.py`, `services/scoring.py`, `services/tournament.py`) are empty placeholders. See [`backend/CLAUDE.md`](./backend/CLAUDE.md) for backend-specific commands, the auth/JWT model, and implementation gotchas (e.g. new models must be registered in `app/models/__init__.py` or Alembic autogenerate silently no-ops).
 
 ## Repository Structure
 
@@ -74,6 +78,9 @@ threes/
 ## Development Commands
 
 ### Backend (FastAPI)
+
+See [`backend/CLAUDE.md`](./backend/CLAUDE.md) for the full picture — notably that tests require a
+real Postgres (no mocked-DB path) and the local Postgres container publishes on host port 5433, not 5432.
 
 ```bash
 # Setup
@@ -155,6 +162,27 @@ Deferred from MVP (see `THREES_STRATEGY.md` §2). MVP score submission is online
 ### ADR-006: Web-first for MVP
 The Flutter app targets web only for MVP — no iOS/Android builds, no app store submission. This removes Fastlane, TestFlight, and Play Store review latency from the pilot's critical path. Native builds are Phase 2, pursued once the pilot validates the format and the fee.
 
+### ADR-007: Holes are never halved — three-level tie-break
+A hole has exactly one winner (1 pt) or no winner at all (everyone 0 pts). **There are no half-points**, so points are always integers.
+
+The winner of a hole is decided by working down three levels, stopping at the first that separates the tied players:
+
+1. **Fewest strokes.**
+2. **Closest to the pin.**
+3. **Longest drive on the fairway.** A drive that finished in the rough is not eligible, however long.
+
+If all three levels fail to separate them, **nobody wins the hole** and every player in the group scores 0 for it.
+
+**Levels 2 and 3 are contested only among the players tied on strokes.** If A and B are tied, the question is which *of A and B* was closer to the pin — C's ball is irrelevant however near the hole it finished. Naming a player who isn't tied is a data error rather than a silent fall-through: quietly returning "no winner" there would hide a real bug behind a plausible-looking result. The tie-break arguments are only consulted when a tie actually exists; an outright stroke winner takes the hole regardless.
+
+Because the tie-breaks are scoped to the players they concern, "no winner" is uncommon. It means the tied players genuinely could not be separated — typically none of them found the fairway.
+
+**Score entry follows from this.** There is no point flagging a hole-wide closest-to-pin or longest-drive winner, since only the tied subset counts. The tie-breaks are captured on demand: the client submits strokes, and *if* those tie, the app asks the tied players — "which of you was closest to the pin?", then if still level, "which of you hit the longest drive on the fairway?". Nothing is recorded unless it actually decided a hole.
+
+The overall leaderboard breaks level players on **fewest total strokes across the loop**. This deliberately replaces countback on the hardest-ranked hole, which would have required the organiser to enter a difficulty ranking for every hole at setup.
+
+**Forward compatibility with handicaps (Phase 2):** because the client submits only raw strokes (ADR-002) and points are always derived server-side, net scoring can be layered on later without changing the score-entry path or re-migrating stored scores.
+
 ## Coding Conventions
 
 ### Python (Backend)
@@ -214,8 +242,17 @@ API_BASE_URL=http://localhost:8000
 - **Round**: One stage of a tournament. Each round has multiple groups playing simultaneously.
 - **Group**: 2–3 players playing the same 3 holes together. One group = one match.
 - **Hole Score**: The number of strokes a player took on a single hole.
-- **Points**: 1 pt for winning a hole (lowest strokes), 0.5 pts for a halved hole, 0 pts for losing.
-- **Countback**: Tie-breaker using performance on the hardest-ranked hole.
+- **Points**: 1 pt for winning a hole, 0 pts otherwise. **Holes are never halved** — see ADR-007 for
+  the tie-break cascade. Points are always integers; there are no half-points.
+- **Closest to the Pin (CTP)**: Tie-break level 2. Asked only when players tie on strokes, and only
+  *of those tied players* — a non-tied player's ball is irrelevant however close it finished (ADR-007).
+  Not a standalone competition in MVP.
+- **Longest Drive on Fairway**: Tie-break level 3, asked on the same terms as CTP: only of the players
+  tied on strokes. A drive that finished in the rough is not eligible, however long. Not a standalone
+  competition in MVP.
+- **Leaderboard Tie-break**: Level players are separated by fewest total strokes across the loop.
+  (This replaces the earlier "countback on the hardest hole" rule, which needed a per-hole difficulty
+  ranking the organiser would have had to enter.)
 - **Fun Round**: A casual, non-tournament round between friends. **Phase 2** — not in MVP.
 - **Virtual Player**: A player without a device, whose scores are entered by another group member.
 - **Organiser Fee**: The MVP monetisation model — a flat fee, tiered by player count (small/medium/large), billed to the tournament organiser and invoiced manually. See `THREES_STRATEGY.md` §1. Not collected in-app; Stripe-based per-player entry fees are Phase 3.
@@ -229,5 +266,5 @@ API_BASE_URL=http://localhost:8000
 4. Real-time leaderboards use Supabase Realtime (Postgres LISTEN/NOTIFY), not custom WebSockets.
 5. Magic link auth means no passwords are stored. Supabase Auth handles the entire flow.
 6. MVP is a **lean validation build**: web-only, no AI, no offline sync, no Fun Rounds — see `THREES_STRATEGY.md`. The MVP milestone is running one real corporate golf day, with the organiser paying the per-event fee.
-7. Phase 2 features (deferred): native iOS/Android apps, AI invitation/summary generation, offline-first sync, Fun Rounds, longest drive, closest to pin, social friends, gamification.
+7. Phase 2 features (deferred): native iOS/Android apps, AI invitation/summary generation, offline-first sync, Fun Rounds, **handicaps / net scoring**, standalone longest-drive and closest-to-pin competitions (with their own prizes and leaderboards), social friends, gamification. Note that longest drive and closest to pin are *captured* in MVP because ADR-007 needs them to break tied holes — what's deferred is treating them as competitions in their own right.
 8. Phase 3 features (deferred): Stripe payment processing, golf club/corporate accounts, sponsors.

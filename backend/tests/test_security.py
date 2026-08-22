@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from app.core.config import settings
 from app.core.security import decode_supabase_jwt
 
-SECRET = "dev-local-only-secret-change-me"
+SECRET = "dev-local-only-secret-change-me!"
 
 
 def _token(**overrides):
