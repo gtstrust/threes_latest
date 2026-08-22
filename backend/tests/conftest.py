@@ -1,3 +1,4 @@
+import asyncio
 import os
 import uuid
 from collections.abc import AsyncGenerator
@@ -6,6 +7,7 @@ import jwt
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 from sqlalchemy.engine.url import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -16,11 +18,16 @@ from app.models.base import Base
 
 TEST_JWT_SECRET = "dev-local-only-secret-change-me!"
 
-# Deliberately NOT settings.database_url: .env normally points at a real Supabase
-# project, and the `engine` fixture below runs drop_all. Tests get their own URL.
+# A database of its own — NOT settings.database_url, and NOT the threes_dev
+# database Alembic manages. Two reasons:
+#   1. .env normally points at a real Supabase project, and the `engine` fixture
+#      below runs drop_all.
+#   2. Sharing threes_dev with Alembic means running the suite wipes every table
+#      while leaving alembic_version behind, so migrations then believe they're
+#      applied against an empty database.
 TEST_DATABASE_URL = os.getenv(
     "TEST_DATABASE_URL",
-    "postgresql+asyncpg://threes:threes@localhost:5433/threes_dev",
+    "postgresql+asyncpg://threes:threes@localhost:5433/threes_test",
 )
 
 # Hostnames we accept as "a database it is safe to drop every table in".
@@ -43,7 +50,34 @@ def _assert_safe_to_drop(url: str) -> None:
         )
 
 
+async def _create_test_database_if_missing(url: str) -> None:
+    """Create the test database on first run.
+
+    The docker-compose postgres container only creates threes_dev, and its volume
+    persists, so an init script would only fire for people who wipe it. Creating
+    the database here means the suite works from a clean checkout with no extra
+    setup step.
+    """
+    target = make_url(url)
+    async_engine = create_async_engine(
+        target.set(database="postgres"), isolation_level="AUTOCOMMIT"
+    )
+    try:
+        async with async_engine.connect() as conn:
+            exists = await conn.scalar(
+                text("SELECT 1 FROM pg_database WHERE datname = :name"),
+                {"name": target.database},
+            )
+            if not exists:
+                # Identifier can't be bound as a parameter; it comes from our own
+                # config rather than user input.
+                await conn.execute(text(f'CREATE DATABASE "{target.database}"'))
+    finally:
+        await async_engine.dispose()
+
+
 _assert_safe_to_drop(TEST_DATABASE_URL)
+asyncio.run(_create_test_database_if_missing(TEST_DATABASE_URL))
 
 
 @pytest_asyncio.fixture

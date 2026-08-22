@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, status
 
 from app.core.deps import (
     CurrentUserDep,
+    ParticipantServiceDep,
     TournamentServiceDep,
     require_can_view,
     require_organiser,
@@ -59,10 +60,13 @@ async def list_my_tournaments(
 
 @router.get("/{tournament_id}", response_model=TournamentRead)
 async def read_tournament(
-    tournament_id: UUID, current_user: CurrentUserDep, service: TournamentServiceDep
+    tournament_id: UUID,
+    current_user: CurrentUserDep,
+    service: TournamentServiceDep,
+    participants: ParticipantServiceDep,
 ) -> TournamentRead:
     tournament = await _get_or_404(tournament_id, service)
-    require_can_view(tournament, current_user)
+    await require_can_view(tournament, current_user, participants)
     return TournamentRead.model_validate(tournament)
 
 

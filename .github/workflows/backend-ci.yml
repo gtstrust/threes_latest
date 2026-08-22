@@ -23,7 +23,7 @@ jobs:
         env:
           POSTGRES_USER: threes
           POSTGRES_PASSWORD: threes
-          POSTGRES_DB: threes_test
+          POSTGRES_DB: threes_dev
         ports:
           - 5432:5432
         options: >-
@@ -35,9 +35,13 @@ jobs:
     env:
       # The service container is published on the runner's localhost:5432 (unlike
       # docker-compose, which uses 5433 locally to dodge a host Postgres).
-      # TEST_DATABASE_URL is what the suite reads; DATABASE_URL is for alembic.
+      #
+      # Two separate databases on purpose: the suite drops every table, so
+      # pointing it at the database Alembic manages would leave alembic_version
+      # claiming migrations are applied against an empty schema. threes_test is
+      # created by conftest on first connect.
+      DATABASE_URL: postgresql+asyncpg://threes:threes@localhost:5432/threes_dev
       TEST_DATABASE_URL: postgresql+asyncpg://threes:threes@localhost:5432/threes_test
-      DATABASE_URL: postgresql+asyncpg://threes:threes@localhost:5432/threes_test
 
     defaults:
       run:

@@ -22,7 +22,7 @@ Web-only. No native apps, no AI features, no offline-first sync, no Fun Rounds
 | — | Player profiles (get-or-create, read, update) | ✅ Done |
 | M1 | Repo housekeeping — CI, lint, docs | ✅ Done |
 | M2 | Tournament domain + ADR-003 state machine + organiser authz | ⬜ Next |
-| M3 | Participants, including Virtual Players | ⬜ |
+| M3 | Participants, including Virtual Players | ✅ Done |
 | M4 | Grouping (ADR-004) + scoring engine (ADR-007) — pure, exhaustively tested | ⬜ |
 | M5 | Courses and holes; tournaments linked to a course | ✅ Done |
 | M6 | Rounds, round_holes, and group generation | ⬜ |

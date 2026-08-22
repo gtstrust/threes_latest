@@ -9,6 +9,7 @@ from app.core.security import CurrentUser, decode_supabase_jwt
 from app.models.course import Course
 from app.models.tournament import Tournament
 from app.services.course import CourseService
+from app.services.participant import ParticipantService
 from app.services.player import PlayerService
 from app.services.tournament import TournamentService
 
@@ -39,10 +40,17 @@ async def get_course_service(
     return CourseService(session)
 
 
+async def get_participant_service(
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> ParticipantService:
+    return ParticipantService(session)
+
+
 CurrentUserDep = Annotated[CurrentUser, Depends(get_current_user)]
 PlayerServiceDep = Annotated[PlayerService, Depends(get_player_service)]
 TournamentServiceDep = Annotated[TournamentService, Depends(get_tournament_service)]
 CourseServiceDep = Annotated[CourseService, Depends(get_course_service)]
+ParticipantServiceDep = Annotated[ParticipantService, Depends(get_participant_service)]
 
 
 def require_course_owner(course: Course, current_user: CurrentUser) -> None:
@@ -73,11 +81,23 @@ def require_organiser(tournament: Tournament, current_user: CurrentUser) -> None
         )
 
 
-def require_can_view(tournament: Tournament, current_user: CurrentUser) -> None:
-    """Guard reading a tournament.
+async def require_can_view(
+    tournament: Tournament,
+    current_user: CurrentUser,
+    participants: ParticipantService,
+) -> None:
+    """Guard reading a tournament: the organiser, or anyone in the field.
 
-    TODO(M3): widen to registered participants. Participants don't exist as a
-    concept yet, so today this is organiser-only; a player invited to an event
-    cannot read it until the participants table lands.
+    Async because unlike the other guards this can't be answered from the
+    tournament row alone — it has to look for the caller's place in the field.
     """
-    require_organiser(tournament, current_user)
+    if tournament.organiser_id == current_user.id:
+        return
+
+    if await participants.get_for_player(tournament.id, current_user.id) is not None:
+        return
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Only the organiser and players in this tournament can view it",
+    )

@@ -1,7 +1,16 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, courses, groups, players, rounds, scores, tournaments
+from app.api import (
+    auth,
+    courses,
+    groups,
+    participants,
+    players,
+    rounds,
+    scores,
+    tournaments,
+)
 from app.core.config import settings
 from app.schemas.common import HealthResponse
 
@@ -19,6 +28,7 @@ app.include_router(auth.router)
 app.include_router(players.router)
 app.include_router(courses.router)
 app.include_router(tournaments.router)
+app.include_router(participants.router)
 app.include_router(rounds.router)
 app.include_router(groups.router)
 app.include_router(scores.router)
