@@ -21,18 +21,24 @@ Web-only. No native apps, no AI features, no offline-first sync, no Fun Rounds
 | — | Auth (Supabase magic-link JWT verification) | ✅ Done |
 | — | Player profiles (get-or-create, read, update) | ✅ Done |
 | M1 | Repo housekeeping — CI, lint, docs | ✅ Done |
-| M2 | Tournament domain + ADR-003 state machine + organiser authz | ⬜ Next |
+| M2 | Tournament domain + ADR-003 state machine + organiser authz | ✅ Done |
 | M3 | Participants, including Virtual Players | ✅ Done |
-| M4 | Grouping (ADR-004) + scoring engine (ADR-007) — pure, exhaustively tested | ⬜ |
+| M4 | Grouping (ADR-004) + scoring engine (ADR-007) — pure, exhaustively tested | ✅ Done |
 | M5 | Courses and holes; tournaments linked to a course | ✅ Done |
-| M6 | Rounds, round_holes, and group generation | ⬜ |
-| M7 | Score submission + points persistence (ADR-002) | ⬜ |
+| M6 | Rounds, groups, and the shotgun-start draw | ✅ Done |
+| M7 | Score submission + points persistence (ADR-002) | ⬜ Next |
 | M8 | Leaderboard + Supabase Realtime | ⬜ |
+
+M4 delivered the scoring engine as a *pure, tested module only* — `score_hole` and
+`rank_leaderboard` in `backend/app/services/scoring.py` have no caller outside their tests.
+Wiring them to a `HoleScore` model and a route is M7's job, and `backend/app/api/scores.py` is
+the last stub router still returning 501.
 
 Scoring rules are settled — see ADR-007. Holes are never halved; a hole has one winner or none,
 decided by strokes → closest to the pin → longest drive on the fairway. Points are integers.
-The leaderboard breaks level players on fewest total strokes, so no per-hole difficulty ranking
-is needed and M5 no longer carries a `stroke_index`.
+The leaderboard breaks level players on fewest total strokes, so the organiser never has to enter
+a per-hole difficulty ranking. `stroke_index` is still on `Hole` — nullable and unused by MVP
+scoring — kept ready for Phase 2 handicaps.
 
 ### Frontend
 

@@ -1,10 +1,10 @@
-"""Tests for the ADR-004 grouping algorithm."""
+"""Tests for the draw: ADR-004 grouping, plus shotgun-start loop allocation."""
 
 import uuid
 
 import pytest
 
-from app.services.grouping import build_groups, group_sizes
+from app.services.grouping import allocate_loops, build_groups, build_loops, group_sizes
 
 
 def _ids(count: int) -> list[uuid.UUID]:
@@ -84,3 +84,67 @@ def test_duplicate_participants_are_rejected() -> None:
     duplicated = _ids(3)
     with pytest.raises(ValueError, match="duplicate"):
         build_groups([*duplicated, duplicated[0]])
+
+
+# --- Loops (shotgun start) --------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("hole_count", "expected_loops"),
+    [
+        (3, 1),
+        (5, 1),  # remainder of two is unused — a group must play three
+        (6, 2),
+        (8, 2),
+        (9, 3),
+        (18, 6),  # the number that constrains a full field
+    ],
+)
+def test_loops_are_consecutive_triples(hole_count: int, expected_loops: int) -> None:
+    holes = _ids(hole_count)
+
+    loops = build_loops(holes)
+
+    assert len(loops) == expected_loops
+    assert all(len(loop) == 3 for loop in loops)
+    # Consecutive and in playing order, not shuffled.
+    assert loops == [holes[i * 3 : i * 3 + 3] for i in range(expected_loops)]
+
+
+def test_a_course_with_too_few_holes_cannot_make_a_loop() -> None:
+    for count in (0, 1, 2):
+        with pytest.raises(ValueError, match="needs 3 holes"):
+            build_loops(_ids(count))
+
+
+def test_duplicate_holes_are_rejected() -> None:
+    holes = _ids(3)
+    with pytest.raises(ValueError, match="duplicate"):
+        build_loops([*holes, holes[0]])
+
+
+def test_each_group_gets_its_own_loop_when_there_are_enough() -> None:
+    assert allocate_loops(group_count=4, loop_count=6) == [0, 1, 2, 3]
+
+
+def test_loops_are_shared_round_robin_when_groups_outnumber_them() -> None:
+    """24 players is 8 groups, but 18 holes only make 6 loops."""
+    assert allocate_loops(group_count=8, loop_count=6) == [0, 1, 2, 3, 4, 5, 0, 1]
+
+
+def test_a_single_loop_serves_every_group() -> None:
+    assert allocate_loops(group_count=3, loop_count=1) == [0, 0, 0]
+
+
+def test_allocating_with_no_loops_is_rejected() -> None:
+    with pytest.raises(ValueError, match="no loops"):
+        allocate_loops(group_count=2, loop_count=0)
+
+
+def test_allocating_a_negative_group_count_is_rejected() -> None:
+    with pytest.raises(ValueError, match="negative"):
+        allocate_loops(group_count=-1, loop_count=2)
+
+
+def test_no_groups_allocates_nothing() -> None:
+    assert allocate_loops(group_count=0, loop_count=6) == []

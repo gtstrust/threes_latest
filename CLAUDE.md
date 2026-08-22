@@ -10,7 +10,27 @@ Threes is a short-form competitive golf platform where players compete over 3-ho
 
 ## Current Implementation Status
 
-Only `backend/` exists so far — `frontend/` and `docs/` in the structure below are the target layout, not yet created. Within the backend, only `auth` and `players` are implemented end-to-end; `tournaments`, `rounds`, `groups`, and `scores` are stub routers returning `501`, and their business-logic modules (`services/grouping.py`, `services/scoring.py`, `services/tournament.py`) are empty placeholders. See [`backend/CLAUDE.md`](./backend/CLAUDE.md) for backend-specific commands, the auth/JWT model, and implementation gotchas (e.g. new models must be registered in `app/models/__init__.py` or Alembic autogenerate silently no-ops).
+Only `backend/` exists so far — `frontend/` and `docs/` in the structure below are the target
+layout, not yet created.
+
+Implemented end-to-end in the backend: **auth, players, courses/holes, tournaments (with the
+ADR-003 state machine), participants, and rounds/groups (the shotgun-start draw)**. The pure
+business-logic modules `services/grouping.py` (ADR-004) and `services/scoring.py` (ADR-007) are
+written and exhaustively unit-tested, but **`scoring.py` is not yet wired to anything** — no
+route, service, or model persists a score.
+
+Not built: **`app/api/scores.py` is the last stub router**, returning `501`. There is no
+`HoleScore` model, no score submission, no points persistence, and no leaderboard endpoint —
+i.e. `ROADMAP.md` M7 and M8. `rank_leaderboard` in `services/scoring.py` exists but has no
+caller.
+
+`ROADMAP.md`'s backend table lags reality — it still marks M2 (tournaments) as "Next" and M4
+(grouping/scoring) as not started, though both have landed. Trust this section and the code over
+that table.
+
+See [`backend/CLAUDE.md`](./backend/CLAUDE.md) for backend-specific commands, the auth/JWT model,
+and implementation gotchas (e.g. new models must be registered in `app/models/__init__.py` or
+Alembic autogenerate silently no-ops).
 
 ## Repository Structure
 
@@ -23,7 +43,9 @@ threes/
 │   │   │   ├── tournaments.py
 │   │   │   ├── rounds.py
 │   │   │   ├── groups.py
-│   │   │   ├── scores.py
+│   │   │   ├── scores.py     # stub — returns 501
+│   │   │   ├── courses.py
+│   │   │   ├── participants.py
 │   │   │   └── players.py
 │   │   ├── core/             # Config, security, dependencies
 │   │   │   ├── config.py
@@ -32,10 +54,12 @@ threes/
 │   │   ├── models/           # SQLAlchemy ORM models
 │   │   ├── schemas/          # Pydantic request/response schemas
 │   │   ├── services/         # Business logic layer
-│   │   │   ├── scoring.py    # Points calculation engine
+│   │   │   ├── scoring.py    # Points engine (pure; not yet wired to a route)
 │   │   │   ├── tournament.py # Tournament state machine
-│   │   │   ├── grouping.py   # Group generation algorithm
-│   │   │   └── ai.py         # Claude API integration
+│   │   │   ├── grouping.py   # Draw: group sizes + shotgun-start loops (pure)
+│   │   │   ├── round.py      # Round lifecycle — where draw + field + course meet
+│   │   │   ├── course.py
+│   │   │   └── participant.py
 │   │   ├── repositories/     # Database access layer
 │   │   └── main.py           # FastAPI app entry point
 │   ├── migrations/           # Alembic migrations
@@ -162,6 +186,13 @@ Deferred from MVP (see `THREES_STRATEGY.md` §2). MVP score submission is online
 ### ADR-006: Web-first for MVP
 The Flutter app targets web only for MVP — no iOS/Android builds, no app store submission. This removes Fastlane, TestFlight, and Play Store review latency from the pilot's critical path. Native builds are Phase 2, pursued once the pilot validates the format and the fee.
 
+### ADR-008: Play statuses are owned by the round endpoints
+`ROUND_IN_PROGRESS` and `ROUND_COMPLETE` cannot be set through `POST /tournaments/{id}/status`. Drawing a round and starting play are one action (`POST /tournaments/{id}/rounds`), as are finishing a round and ending it (`POST /rounds/{round_id}/complete`).
+
+Allowing the status to move on its own would let a tournament sit in `ROUND_IN_PROGRESS` with no round drawn, or in `ROUND_COMPLETE` with a round still marked in progress — two sources of truth quietly disagreeing. The status endpoint still owns the registration transitions and `ROUND_COMPLETE → TOURNAMENT_COMPLETE`.
+
+The readiness check for "no course set" moved into the draw for the same reason: it's now the only route to `ROUND_IN_PROGRESS`, so a copy left on the status endpoint would have been unreachable.
+
 ### ADR-007: Holes are never halved — three-level tie-break
 A hole has exactly one winner (1 pt) or no winner at all (everyone 0 pts). **There are no half-points**, so points are always integers.
 
@@ -217,15 +248,17 @@ The overall leaderboard breaks level players on **fewest total strokes across th
 
 ### Backend (.env)
 
+Only these are read (`app/core/config.py`; `extra="ignore"`, so anything else in `.env` is
+silently dropped rather than rejected). No `ANTHROPIC_API_KEY` or `EMAIL_FROM` — AI generation
+and email are Phase 2/3.
+
 ```
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your-service-role-key
 SUPABASE_JWT_SECRET=your-jwt-secret
-DATABASE_URL=postgresql+asyncpg://user:pass@host:5432/dbname
-ANTHROPIC_API_KEY=sk-ant-...
+DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5433/threes_dev
 ENVIRONMENT=development
 CORS_ORIGINS=http://localhost:3000,http://localhost:8080
-EMAIL_FROM=noreply@threes.golf
 ```
 
 ### Frontend (.env)
@@ -249,9 +282,17 @@ API_BASE_URL=http://localhost:8000
   optional because scoring never uses par (ADR-007 is strokes alone), so an organiser can enter
   three hole numbers and start. `stroke_index` is present ready for Phase 2 handicaps. A course only
   needs the holes actually being played — a 3-hole loop needs 3, not 18.
-- **Round**: One stage of a tournament. Each round has multiple groups playing simultaneously, over
-  exactly 3 holes drawn from the tournament's course.
-- **Group**: 2–3 players playing the same 3 holes together. One group = one match.
+- **Round**: One stage of a tournament — a draw of groups all playing simultaneously. Carries its own
+  status (`PENDING` / `IN_PROGRESS` / `COMPLETE`), distinct from the tournament's, because a
+  tournament runs several rounds and its single status can only describe the current one.
+- **Group**: 2–3 players playing one 3-hole **loop** together. One group = one match.
+- **Loop**: The 3 holes a group plays, taken as consecutive triples of the course's entered holes.
+  **Each group gets its own loop** — a shotgun start, so the whole field tees off at once instead of
+  queueing. A course caps this: 18 holes make only 6 loops, so above 18 players groups share loops
+  round-robin and tee off staggered. That's expected, not an error.
+- **The draw**: Round 1 groups players in **registration order**, so people play with the mates they
+  signed up alongside. Round 2 onwards shuffles. Both fall out of `build_groups` being deterministic
+  and order-preserving — the ordering decision lives in `RoundService`, not the pure function.
 - **Hole Score**: The number of strokes a player took on a single hole. Foreign-keys to a `Hole`
   rather than storing a bare hole number, so score → hole → course holds together.
 - **Points**: 1 pt for winning a hole, 0 pts otherwise. **Holes are never halved** — see ADR-007 for

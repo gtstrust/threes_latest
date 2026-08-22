@@ -11,6 +11,7 @@ from app.models.tournament import Tournament
 from app.services.course import CourseService
 from app.services.participant import ParticipantService
 from app.services.player import PlayerService
+from app.services.round import RoundService
 from app.services.tournament import TournamentService
 
 _bearer_scheme = HTTPBearer()
@@ -46,11 +47,18 @@ async def get_participant_service(
     return ParticipantService(session)
 
 
+async def get_round_service(
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> RoundService:
+    return RoundService(session)
+
+
 CurrentUserDep = Annotated[CurrentUser, Depends(get_current_user)]
 PlayerServiceDep = Annotated[PlayerService, Depends(get_player_service)]
 TournamentServiceDep = Annotated[TournamentService, Depends(get_tournament_service)]
 CourseServiceDep = Annotated[CourseService, Depends(get_course_service)]
 ParticipantServiceDep = Annotated[ParticipantService, Depends(get_participant_service)]
+RoundServiceDep = Annotated[RoundService, Depends(get_round_service)]
 
 
 def require_course_owner(course: Course, current_user: CurrentUser) -> None:

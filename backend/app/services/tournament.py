@@ -45,12 +45,20 @@ class OrganiserProfileMissing(TournamentError):
     """The authenticated user has a valid JWT but no `players` row yet."""
 
 
-class PreconditionNotMet(TournamentError):
-    """The move is legal for the state machine, but the tournament isn't ready.
+class RoundDrivenStatus(TournamentError):
+    """This status is owned by the round endpoints, not set directly.
 
-    Kept distinct from InvalidTransition so a caller can tell "you can't do that
-    from this state" apart from "you haven't set a course yet".
+    Drawing a round and starting play are one action, as are finishing a round and
+    ending it. Allowing the status to be set on its own would let a tournament sit
+    in ROUND_IN_PROGRESS with no round drawn, or in ROUND_COMPLETE with a round
+    still marked in progress — two sources of truth quietly disagreeing.
     """
+
+    def __init__(self, target: TournamentStatus, endpoint: str) -> None:
+        self.target = target
+        super().__init__(
+            f"{target.value} is set by playing the round, not directly. Use {endpoint}."
+        )
 
 
 class InvalidTransition(TournamentError):
@@ -94,31 +102,32 @@ class TournamentService:
         return await self._repository.update(tournament, updates)
 
     async def transition(self, tournament: Tournament, target: TournamentStatus) -> Tournament:
-        """Move a tournament to `target`, enforcing ADR-003.
+        """Move a tournament to `target` on behalf of a direct status request.
 
         Raises:
+            RoundDrivenStatus: If `target` belongs to the round endpoints.
             InvalidTransition: If the move isn't legal from the current state.
-            PreconditionNotMet: If the move is legal but the tournament isn't
-                ready for it.
         """
+        _reject_round_driven(target)
         if not can_transition(tournament.status, target):
             raise InvalidTransition(tournament.status, target)
-        _check_preconditions(tournament, target)
         return await self._repository.set_status(tournament, target)
 
 
-def _check_preconditions(tournament: Tournament, target: TournamentStatus) -> None:
-    """Readiness checks that depend on data beyond the tournament's status.
+# Statuses that only the round endpoints may set, and where to go instead.
+ROUND_DRIVEN_STATUSES: dict[TournamentStatus, str] = {
+    TournamentStatus.ROUND_IN_PROGRESS: "POST /tournaments/{id}/rounds to draw the next round",
+    TournamentStatus.ROUND_COMPLETE: "POST /rounds/{round_id}/complete to finish the round",
+}
 
-    Kept out of `can_transition` on purpose: that function is a pure, DB-free
-    description of the state graph, and it should stay that way rather than
-    growing knowledge of which related rows exist.
 
-    Raises:
-        PreconditionNotMet: If the tournament isn't ready for `target`.
-    """
-    if target is TournamentStatus.ROUND_IN_PROGRESS and tournament.course_id is None:
-        raise PreconditionNotMet(
-            "This tournament has no course set, so there are no holes to play. "
-            "Set course_id before starting a round."
-        )
+def _reject_round_driven(target: TournamentStatus) -> None:
+    endpoint = ROUND_DRIVEN_STATUSES.get(target)
+    if endpoint is not None:
+        raise RoundDrivenStatus(target, endpoint)
+
+
+# There was a readiness check here for "no course set" before starting a round.
+# It moved into RoundService.draw_round, which is now the only way to reach
+# ROUND_IN_PROGRESS — leaving it here would have been a rule that looked enforced
+# but could never fire, since _reject_round_driven refuses that target first.
