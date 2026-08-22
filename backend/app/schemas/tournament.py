@@ -12,7 +12,7 @@ class TournamentCreate(BaseModel):
         default=TournamentFormat.ROUND_ROBIN,
         description="Only ROUND_ROBIN is accepted; KNOCKOUT is not implemented yet.",
     )
-    course_name: str | None = Field(default=None, max_length=200)
+    course_id: UUID | None = None
     scheduled_at: datetime | None = None
 
     @field_validator("format")
@@ -36,7 +36,7 @@ class TournamentUpdate(BaseModel):
     """Every field optional — only what's supplied is changed."""
 
     name: str | None = Field(default=None, min_length=1, max_length=200)
-    course_name: str | None = Field(default=None, max_length=200)
+    course_id: UUID | None = None
     scheduled_at: datetime | None = None
 
 
@@ -52,7 +52,7 @@ class TournamentRead(BaseModel):
     organiser_id: UUID
     status: TournamentStatus
     format: TournamentFormat
-    course_name: str | None
+    course_id: UUID | None
     scheduled_at: datetime | None
     created_at: datetime
     updated_at: datetime

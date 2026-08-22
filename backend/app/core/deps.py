@@ -6,7 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_db
 from app.core.security import CurrentUser, decode_supabase_jwt
+from app.models.course import Course
 from app.models.tournament import Tournament
+from app.services.course import CourseService
 from app.services.player import PlayerService
 from app.services.tournament import TournamentService
 
@@ -31,9 +33,30 @@ async def get_tournament_service(
     return TournamentService(session)
 
 
+async def get_course_service(
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> CourseService:
+    return CourseService(session)
+
+
 CurrentUserDep = Annotated[CurrentUser, Depends(get_current_user)]
 PlayerServiceDep = Annotated[PlayerService, Depends(get_player_service)]
 TournamentServiceDep = Annotated[TournamentService, Depends(get_tournament_service)]
+CourseServiceDep = Annotated[CourseService, Depends(get_course_service)]
+
+
+def require_course_owner(course: Course, current_user: CurrentUser) -> None:
+    """Guard edits to a course.
+
+    Courses are shared reference data — anyone may read one and link a tournament
+    to it — but only whoever created it may change its name or holes, so one
+    organiser can't renumber a course out from under another's live event.
+    """
+    if course.created_by != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the player who created this course can change it",
+        )
 
 
 def require_organiser(tournament: Tournament, current_user: CurrentUser) -> None:

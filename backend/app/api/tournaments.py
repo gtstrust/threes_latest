@@ -15,7 +15,11 @@ from app.schemas.tournament import (
     TournamentStatusUpdate,
     TournamentUpdate,
 )
-from app.services.tournament import InvalidTransition, OrganiserProfileMissing
+from app.services.tournament import (
+    InvalidTransition,
+    OrganiserProfileMissing,
+    PreconditionNotMet,
+)
 
 router = APIRouter(prefix="/tournaments", tags=["tournaments"])
 
@@ -91,6 +95,6 @@ async def change_tournament_status(
     require_organiser(tournament, current_user)
     try:
         updated = await service.transition(tournament, payload.status)
-    except InvalidTransition as exc:
+    except (InvalidTransition, PreconditionNotMet) as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return TournamentRead.model_validate(updated)

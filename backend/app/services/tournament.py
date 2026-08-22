@@ -45,6 +45,14 @@ class OrganiserProfileMissing(TournamentError):
     """The authenticated user has a valid JWT but no `players` row yet."""
 
 
+class PreconditionNotMet(TournamentError):
+    """The move is legal for the state machine, but the tournament isn't ready.
+
+    Kept distinct from InvalidTransition so a caller can tell "you can't do that
+    from this state" apart from "you haven't set a course yet".
+    """
+
+
 class InvalidTransition(TournamentError):
     """The requested status change isn't legal from the tournament's current state."""
 
@@ -90,7 +98,27 @@ class TournamentService:
 
         Raises:
             InvalidTransition: If the move isn't legal from the current state.
+            PreconditionNotMet: If the move is legal but the tournament isn't
+                ready for it.
         """
         if not can_transition(tournament.status, target):
             raise InvalidTransition(tournament.status, target)
+        _check_preconditions(tournament, target)
         return await self._repository.set_status(tournament, target)
+
+
+def _check_preconditions(tournament: Tournament, target: TournamentStatus) -> None:
+    """Readiness checks that depend on data beyond the tournament's status.
+
+    Kept out of `can_transition` on purpose: that function is a pure, DB-free
+    description of the state graph, and it should stay that way rather than
+    growing knowledge of which related rows exist.
+
+    Raises:
+        PreconditionNotMet: If the tournament isn't ready for `target`.
+    """
+    if target is TournamentStatus.ROUND_IN_PROGRESS and tournament.course_id is None:
+        raise PreconditionNotMet(
+            "This tournament has no course set, so there are no holes to play. "
+            "Set course_id before starting a round."
+        )
