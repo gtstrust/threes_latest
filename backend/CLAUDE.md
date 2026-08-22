@@ -26,8 +26,13 @@ uvicorn app.main:app --reload --port 8000
 ### Tests
 
 Tests require a real Postgres — start it first (`docker compose up -d postgres`). There is no
-mocked-DB test path; `tests/conftest.py` creates/drops all tables against `settings.database_url`
-per test session.
+mocked-DB test path; `tests/conftest.py` creates and drops every table per test.
+
+**The suite runs against its own database, `threes_test`, not the `threes_dev` one Alembic
+manages.** This matters: `drop_all` doesn't touch `alembic_version`, so sharing a database would
+leave migrations believing they were applied against an empty schema. `conftest.py` creates
+`threes_test` on first connect, so there's no setup step. Override with `TEST_DATABASE_URL`; the
+suite refuses to start against any non-local host, because it drops everything.
 
 ```bash
 pytest

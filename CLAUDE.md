@@ -266,7 +266,18 @@ API_BASE_URL=http://localhost:8000
   (This replaces the earlier "countback on the hardest hole" rule, which needed a per-hole difficulty
   ranking the organiser would have had to enter.)
 - **Fun Round**: A casual, non-tournament round between friends. **Phase 2** — not in MVP.
-- **Virtual Player**: A player without a device, whose scores are entered by another group member.
+- **Participant**: Someone playing in a tournament — the identity groups and scores foreign-key to,
+  never a Player directly. That indirection is what lets a Virtual Player be grouped and scored like
+  anyone else. `display_name` is a snapshot taken at registration, so a leaderboard doesn't rename
+  people mid-event if they edit their profile.
+- **Virtual Player**: A participant with no account, whose scores are entered by another group
+  member — `player_id IS NULL`. `UNIQUE(tournament_id, player_id)` prevents double registration
+  while still allowing any number of virtual players, because Postgres treats NULLs as distinct.
+  Names are not unique: two people really can both be John Smith.
+- **The field**: A tournament's participants. Players self-register only while `REGISTRATION_OPEN`;
+  the organiser can add or remove right up until `ROUND_IN_PROGRESS`. That override exists because
+  ADR-003 has no route back to `REGISTRATION_OPEN`, so without it a no-show would be stuck in the
+  draw. Once play starts the field is fixed.
 - **Organiser Fee**: The MVP monetisation model — a flat fee, tiered by player count (small/medium/large), billed to the tournament organiser and invoiced manually. See `THREES_STRATEGY.md` §1. Not collected in-app; Stripe-based per-player entry fees are Phase 3.
 - **Sponsor**: A company or brand attached to a tournament (Phase 3). Sponsor name and logo are displayed on leaderboards and invitation emails.
 

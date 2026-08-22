@@ -97,6 +97,11 @@ pytest
 pytest --cov=app tests/
 ```
 
+The suite uses its own database, `threes_test`, created automatically on first run — deliberately
+not the `threes_dev` database Alembic manages, since tests drop every table and would otherwise
+leave your migrated schema empty while `alembic_version` still claimed to be up to date. Point it
+elsewhere with `TEST_DATABASE_URL`; it refuses to run against a non-local host.
+
 ## Linting & Type Checking
 
 ```bash
