@@ -112,15 +112,13 @@ value for the `backend` service for this reason.
 
 ### Implementation status
 
-`auth`, `players`, `courses`, `tournaments`, `participants`, `rounds` and `groups` are all
-implemented end-to-end. **`app/api/scores.py` is the only remaining stub** — it returns 501, and
-there is no `HoleScore` model or score persistence behind it.
+Every router is implemented — **no 501 stubs remain**. The one piece of the scoring engine still
+unwired is `rank_leaderboard`: nothing calls it outside `tests/test_scoring.py`. Building the
+tournament-wide leaderboard on top of it is M8 in `../ROADMAP.md`, and it should read
+`hole_scores` as `SUM(points) GROUP BY participant_id` rather than recomputing from strokes.
 
-`services/scoring.py` is fully written and exhaustively unit-tested but **has no caller yet**:
-nothing invokes `score_hole` or `rank_leaderboard` outside `tests/test_scoring.py`. Wiring it up
-(a `HoleScore` model, a migration, a scores service, and a leaderboard endpoint) is the next
-slice — M7/M8 in `../ROADMAP.md`. Follow the `rounds` slice as the template; it's the most recent
-and the most complete example of the layering.
+Follow the `rounds` or `scores` slice as the template — both are recent and show the layering in
+full.
 
 ### The pure core
 
@@ -130,7 +128,10 @@ the platform's most critical logic is testable without fixtures:
 - `services/scoring.py` — the ADR-007 cascade (`score_hole`) and `rank_leaderboard`.
 - `services/grouping.py` — `group_sizes` / `build_groups` / `build_loops` / `allocate_loops`.
 
-Keep them that way. Anything needing a database belongs in the calling service.
+Keep them that way. Anything needing a database belongs in the calling service — for scoring
+that's `services/score_entry.py`, named to sit a clear distance from `scoring.py` rather than one
+letter away. `score_entry` decides *which* strokes may reach the engine and what happens to the
+answer; `scoring` decides who won.
 
 Two consequences worth knowing before changing them:
 
@@ -140,6 +141,28 @@ Two consequences worth knowing before changing them:
   so people play with whoever they signed up alongside).
 - **`group_sizes` never returns a group of 1.** A remainder of one trades a three for two pairs,
   so 4 players is 2+2 and 7 is 3+2+2 — not 3+1 or 3+3+1.
+
+### Scoring: two tables, and one deliberate import
+
+`hole_scores` is what players reported (strokes, plus the points the server derived); `hole_results`
+is what the cascade decided. Re-submitting a hole rewrites both — that is how a mis-key is
+corrected *and* how a tie-break answer arrives, since ADR-007 only asks the question once a tie
+appears. A submission that ties reports `tied_participants` so the client knows who to ask.
+
+Three check constraints on `hole_results` enforce ADR-007 in the database rather than trusting the
+service: a tie-break id may only be stored when `decided_by` names that level, and
+`winner IS NULL` exactly when `decided_by = 'no_winner'` (holes are never halved).
+
+`app/models/score.py` imports `DecidedBy` from `app/services/scoring.py` — the one place a model
+reaches into the service layer. It is deliberate: `DecidedBy` is part of `score_hole`'s return
+contract, and a second copy in the model layer is how the database labels quietly drift from what
+the engine returns. `scoring.py` imports nothing from `app.*`, which is what keeps this from being
+a cycle — **don't add a models import there**.
+
+`DecidedBy` is also the first enum whose values differ from its member names (`STROKES` vs
+`"strokes"`). SQLAlchemy persists the *name* by default, so the column passes `values_callable` to
+store the lowercase value instead, keeping the database label, the API response and ADR-007's
+vocabulary identical.
 
 ### Domain errors and how routes map them
 

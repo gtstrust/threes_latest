@@ -14,19 +14,16 @@ Only `backend/` exists so far — `frontend/` and `docs/` in the structure below
 layout, not yet created.
 
 Implemented end-to-end in the backend: **auth, players, courses/holes, tournaments (with the
-ADR-003 state machine), participants, and rounds/groups (the shotgun-start draw)**. The pure
-business-logic modules `services/grouping.py` (ADR-004) and `services/scoring.py` (ADR-007) are
-written and exhaustively unit-tested, but **`scoring.py` is not yet wired to anything** — no
-route, service, or model persists a score.
+ADR-003 state machine), participants, rounds/groups (the shotgun-start draw), and score entry
+(the ADR-007 cascade, persisted)**. **No stub routers remain** — every route is real.
 
-Not built: **`app/api/scores.py` is the last stub router**, returning `501`. There is no
-`HoleScore` model, no score submission, no points persistence, and no leaderboard endpoint —
-i.e. `ROADMAP.md` M7 and M8. `rank_leaderboard` in `services/scoring.py` exists but has no
-caller.
+Not built: **the leaderboard** (`ROADMAP.md` M8). `rank_leaderboard` in `services/scoring.py` is
+written and tested but still has no caller; it is the one piece of the scoring engine not yet
+wired up. There is no tournament-wide standings endpoint and no Supabase Realtime.
 
-`ROADMAP.md`'s backend table lags reality — it still marks M2 (tournaments) as "Next" and M4
-(grouping/scoring) as not started, though both have landed. Trust this section and the code over
-that table.
+Score entry landed as `hole_scores` (raw strokes + the points each earned) and `hole_results`
+(what the cascade decided, and which level decided it). M8's leaderboard is meant to read the
+former as `SUM(points) GROUP BY participant_id`.
 
 See [`backend/CLAUDE.md`](./backend/CLAUDE.md) for backend-specific commands, the auth/JWT model,
 and implementation gotchas (e.g. new models must be registered in `app/models/__init__.py` or
@@ -43,7 +40,7 @@ threes/
 │   │   │   ├── tournaments.py
 │   │   │   ├── rounds.py
 │   │   │   ├── groups.py
-│   │   │   ├── scores.py     # stub — returns 501
+│   │   │   ├── scores.py
 │   │   │   ├── courses.py
 │   │   │   ├── participants.py
 │   │   │   └── players.py
@@ -54,7 +51,8 @@ threes/
 │   │   ├── models/           # SQLAlchemy ORM models
 │   │   ├── schemas/          # Pydantic request/response schemas
 │   │   ├── services/         # Business logic layer
-│   │   │   ├── scoring.py    # Points engine (pure; not yet wired to a route)
+│   │   │   ├── scoring.py    # Points engine + leaderboard ranking (pure)
+│   │   │   ├── score_entry.py # Score entry — persists what scoring.py decides
 │   │   │   ├── tournament.py # Tournament state machine
 │   │   │   ├── grouping.py   # Draw: group sizes + shotgun-start loops (pure)
 │   │   │   ├── round.py      # Round lifecycle — where draw + field + course meet

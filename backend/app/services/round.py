@@ -59,6 +59,29 @@ class RoundService:
     async def get_group(self, group_id: UUID) -> Group | None:
         return await self._rounds.get_group(group_id)
 
+    async def get_group_context(self, group_id: UUID) -> tuple[Group, Round, Tournament] | None:
+        """A group with the round and tournament it belongs to, or None.
+
+        Every group-scoped endpoint needs all three — the group to act on, the
+        round for its status, and the tournament to authorise against — and the
+        chain is three sequential lookups. Returning None for any missing link
+        lets callers answer with a single 404 rather than leaking which step of
+        the chain broke.
+        """
+        group = await self._rounds.get_group(group_id)
+        if group is None:
+            return None
+
+        round_ = await self._rounds.get_by_id(group.round_id)
+        if round_ is None:
+            return None
+
+        tournament = await self._tournaments.get_by_id(round_.tournament_id)
+        if tournament is None:
+            return None
+
+        return group, round_, tournament
+
     async def list_for_tournament(self, tournament_id: UUID) -> Sequence[Round]:
         return await self._rounds.list_for_tournament(tournament_id)
 
