@@ -140,6 +140,46 @@ migrations/         # Alembic migrations
 tests/
 ```
 
-Routes → services → repositories → database. Only `auth` + `players` are
-fully implemented; `tournaments`, `rounds`, `groups`, and `scores` are stub
-routers (each returns `501` until built out).
+Routes → services → repositories → database. Every router is implemented —
+there are no stub endpoints left. The one piece of business logic not yet
+wired to a route is `rank_leaderboard` in `services/scoring.py`; the
+tournament leaderboard is M8 in [`../ROADMAP.md`](../ROADMAP.md).
+
+## API surface
+
+`GET /health` is open; everything else needs a bearer token. Full
+request/response schemas are at http://localhost:8000/docs.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/health` | Liveness check (no auth) |
+| `GET` | `/auth/me` | Verify a token and echo its claims |
+| `POST` | `/players` | Idempotently provision the caller's profile |
+| `GET` `PATCH` | `/players/me` | Read or update your own profile |
+| `GET` | `/players/{id}` | Read a profile |
+| `POST` `GET` | `/courses` | Create or search courses (shared reference data) |
+| `GET` `PATCH` | `/courses/{id}` | Read a course with its holes, or rename it |
+| `PUT` | `/courses/{id}/holes` | Upsert the holes being played |
+| `POST` `GET` | `/tournaments` | Create a tournament, or list your own |
+| `GET` `PATCH` | `/tournaments/{id}` | Read or edit tournament details |
+| `POST` | `/tournaments/{id}/status` | Registration transitions (ADR-003) |
+| `POST` `GET` | `/tournaments/{id}/participants` | Self-register, or read the field |
+| `POST` | `/tournaments/{id}/participants/virtual` | Add a Virtual Player (organiser) |
+| `DELETE` | `/tournaments/{id}/participants/{pid}` | Remove someone from the field (organiser) |
+| `POST` `GET` | `/tournaments/{id}/rounds` | Draw the next round and start play, or list rounds |
+| `GET` | `/rounds/{id}` | The draw: every group with its members and loop |
+| `POST` | `/rounds/{id}/complete` | Finish the round in progress (organiser) |
+| `GET` | `/groups/{id}` | One group, its members and its loop |
+| `POST` | `/groups/{id}/holes/{hole_id}/scores` | Enter the group's strokes for a hole |
+| `GET` | `/groups/{id}/scores` | The group's card so far |
+
+Two of these are worth knowing before you call them:
+
+- **`POST /tournaments/{id}/status` will not set `ROUND_IN_PROGRESS` or
+  `ROUND_COMPLETE`.** Drawing a round starts play and completing a round ends
+  it, so those statuses belong to the round endpoints (ADR-008).
+- **Score submission is an idempotent upsert of one hole for the whole
+  group.** Re-posting a hole corrects it. If the strokes tie, the response
+  names the tied players in `tied_participants` — ask *those* players who was
+  closest to the pin, then who hit the longest drive on the fairway, and post
+  the hole again with the answer (ADR-007).
