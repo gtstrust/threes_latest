@@ -26,13 +26,13 @@ Web-only. No native apps, no AI features, no offline-first sync, no Fun Rounds
 | M4 | Grouping (ADR-004) + scoring engine (ADR-007) — pure, exhaustively tested | ✅ Done |
 | M5 | Courses and holes; tournaments linked to a course | ✅ Done |
 | M6 | Rounds, groups, and the shotgun-start draw | ✅ Done |
-| M7 | Score submission + points persistence (ADR-002) | ⬜ Next |
-| M8 | Leaderboard + Supabase Realtime | ⬜ |
+| M7 | Score submission + points persistence (ADR-002) | ✅ Done |
+| M8 | Leaderboard + Supabase Realtime | ⬜ Next |
 
-M4 delivered the scoring engine as a *pure, tested module only* — `score_hole` and
-`rank_leaderboard` in `backend/app/services/scoring.py` have no caller outside their tests.
-Wiring them to a `HoleScore` model and a route is M7's job, and `backend/app/api/scores.py` is
-the last stub router still returning 501.
+M7 wired `score_hole` up: strokes come in per group per hole, the engine decides the hole, and
+both the strokes and the decided result are persisted (`hole_scores`, `hole_results`). Every
+backend router is now real — no 501 stubs remain. `rank_leaderboard` is still uncalled; that is
+M8's job, and it reads what M7 writes as `SUM(points) GROUP BY participant_id`.
 
 Scoring rules are settled — see ADR-007. Holes are never halved; a hole has one winner or none,
 decided by strokes → closest to the pin → longest drive on the fairway. Points are integers.
