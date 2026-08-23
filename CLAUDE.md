@@ -307,10 +307,16 @@ API_BASE_URL=http://localhost:8000
   tournament runs several rounds and its single status can only describe the current one.
 - **Group**: 2–4 players playing one 3-hole **loop** together. One group = one match. Three is the
   format; a pair or a fourball absorbs whatever a clean split leaves over (ADR-004).
-- **Loop**: The 3 holes a group plays, taken as consecutive triples of the course's entered holes.
+- **Loop**: The 3 holes a group plays, taken as consecutive triples of the holes in play.
   **Each group gets its own loop** — a shotgun start, so the whole field tees off at once instead of
   queueing. A course caps this: 18 holes make only 6 loops, so above 18 players groups share loops
   round-robin and tee off staggered. That's expected, not an error.
+- **Playing part of a course**: the draw takes an optional `hole_numbers` — `[7, 8, 9]` for a match
+  played inside a normal round. The tournament stays attached to the real course record; which holes
+  were played is recorded per group in `group_holes`, so a club never needs a duplicate "holes 7-9"
+  course. Omitted means the whole course. A selection must be a multiple of 3, unlike the course-wide
+  default, which simply leaves a remainder unused: a course is a record of what exists, a selection
+  is a statement of intent, and silently dropping part of one would be the worse answer.
 - **The draw**: Round 1 groups players in **registration order**, so people play with the mates they
   signed up alongside. Round 2 onwards shuffles. Both fall out of `build_groups` being deterministic
   and order-preserving — the ordering decision lives in `RoundService`, not the pure function.

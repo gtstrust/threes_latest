@@ -12,6 +12,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.course import Hole
 from app.models.round import Group, Round, RoundStatus
 from app.models.tournament import Tournament, TournamentStatus
 from app.repositories.course import CourseRepository
@@ -41,6 +42,29 @@ class DrawNotPossible(RoundError):
 
 class RoundNotInProgress(RoundError):
     """Tried to complete a round that isn't currently being played."""
+
+
+def _select_holes(holes: Sequence[Hole], wanted: Sequence[int]) -> list[Hole]:
+    """Narrow a course's holes to the ones asked for, in playing order.
+
+    Sorted by hole number rather than kept in the order given: `build_loops`
+    documents its input as being in playing order, and a group that asked for
+    7, 8, 9 plays them in that order whatever sequence they typed. A loop that
+    wraps the turn — 17, 18, 1 — is therefore not expressible, which is a real
+    shotgun-start case but not one a 3-hole side match needs.
+
+    Raises:
+        DrawNotPossible: If the course has no hole with one of these numbers.
+    """
+    by_number = {hole.hole_number: hole for hole in holes}
+    missing = sorted(number for number in wanted if number not in by_number)
+    if missing:
+        entered = sorted(by_number)
+        raise DrawNotPossible(
+            f"This course has no hole {missing} entered. It has {entered or 'no holes'}. "
+            "Add the holes to the course first, or pick from the ones it has."
+        )
+    return [by_number[number] for number in sorted(set(wanted))]
 
 
 class RoundService:
@@ -85,11 +109,19 @@ class RoundService:
     async def list_for_tournament(self, tournament_id: UUID) -> Sequence[Round]:
         return await self._rounds.list_for_tournament(tournament_id)
 
-    async def draw_round(self, tournament: Tournament) -> Round:
+    async def draw_round(
+        self, tournament: Tournament, hole_numbers: Sequence[int] | None = None
+    ) -> Round:
         """Draw the next round: split the field into groups and give each a loop.
 
         Round 1 is drawn in registration order, so people play with the mates they
         signed up alongside. Later rounds shuffle first, to mix the field up.
+
+        `hole_numbers` narrows the draw to part of the course — holes 7, 8 and 9
+        of a normal round, say. The tournament still points at the real course
+        record; which holes were actually played is recorded per group in
+        `group_holes`, so nothing has to invent a duplicate course to say "we
+        played the back three". Omitted means the whole course, as before.
 
         Raises:
             RoundNotDrawable: If the tournament isn't ready for a new round.
@@ -108,6 +140,8 @@ class RoundService:
             )
 
         holes = await self._courses.list_holes(tournament.course_id)
+        if hole_numbers is not None:
+            holes = _select_holes(holes, hole_numbers)
         participants = await self._participants.list_for_tournament(tournament.id)
 
         round_number = await self._rounds.next_round_number(tournament.id)

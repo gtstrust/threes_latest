@@ -247,7 +247,7 @@ request/response schemas are at http://localhost:8000/docs.
 | `POST` `GET` | `/tournaments/{id}/participants` | Self-register, or read the field |
 | `POST` | `/tournaments/{id}/participants/virtual` | Add a Virtual Player (organiser) |
 | `DELETE` | `/tournaments/{id}/participants/{pid}` | Remove someone from the field (organiser) |
-| `POST` `GET` | `/tournaments/{id}/rounds` | Draw the next round and start play, or list rounds |
+| `POST` `GET` | `/tournaments/{id}/rounds` | Draw the next round and start play (optional `hole_numbers`), or list rounds |
 | `GET` | `/rounds/{id}` | The draw: every group with its members and loop |
 | `POST` | `/rounds/{id}/complete` | Finish the round in progress (organiser) |
 | `GET` | `/groups/{id}` | One group, its members and its loop |

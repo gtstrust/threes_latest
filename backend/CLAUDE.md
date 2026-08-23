@@ -165,6 +165,9 @@ Two consequences worth knowing before changing them:
   the arithmetic divides by, while `MAX_GROUP_SIZE` (4) only ever appears as the remainder case.
   Dividing by `MAX_GROUP_SIZE` would turn the whole field into fourballs and quietly stop the
   platform being about threes.
+- **`build_loops` chunks whatever holes it is given**, which since the draw learned `hole_numbers`
+  is not always the whole course. `RoundService._select_holes` narrows and sorts them first; the
+  pure function is unchanged and still assumes playing order.
 
 ### Scoring: the two tables, and one deliberate import
 
