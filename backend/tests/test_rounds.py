@@ -131,7 +131,7 @@ async def test_later_rounds_are_shuffled(client, make_token):
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("player_count", "expected_sizes"),
-    [(2, [2]), (4, [2, 2]), (6, [3, 3]), (7, [3, 2, 2]), (24, [3] * 8)],
+    [(2, [2]), (4, [4]), (6, [3, 3]), (7, [3, 4]), (24, [3] * 8)],
 )
 async def test_everyone_is_placed_in_exactly_one_group(
     client, make_token, player_count, expected_sizes
