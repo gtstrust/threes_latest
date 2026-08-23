@@ -13,23 +13,23 @@ def _ids(count: int) -> list[uuid.UUID]:
 
 # Every count from 0 to 13, spelled out rather than computed, so a regression in
 # the algorithm can't quietly change the expectation too. ADR-004: threes where
-# possible, pairs otherwise, never a group of one.
+# possible, a pair or a fourball to absorb the remainder, never a group of one.
 @pytest.mark.parametrize(
     ("count", "expected"),
     [
         (0, []),
         (2, [2]),
         (3, [3]),
-        (4, [2, 2]),
+        (4, [4]),
         (5, [3, 2]),
         (6, [3, 3]),
-        (7, [3, 2, 2]),
+        (7, [3, 4]),
         (8, [3, 3, 2]),
         (9, [3, 3, 3]),
-        (10, [3, 3, 2, 2]),
+        (10, [3, 3, 4]),
         (11, [3, 3, 3, 2]),
         (12, [3, 3, 3, 3]),
-        (13, [3, 3, 3, 2, 2]),
+        (13, [3, 3, 3, 4]),
     ],
 )
 def test_group_sizes(count: int, expected: list[int]) -> None:
@@ -49,7 +49,7 @@ def test_every_player_is_placed_exactly_once(count: int) -> None:
 @pytest.mark.parametrize("count", range(2, 40))
 def test_no_group_is_ever_left_with_one_player(count: int) -> None:
     for group in build_groups(_ids(count)):
-        assert len(group) in (2, 3)
+        assert len(group) in (2, 3, 4)
 
 
 def test_a_lone_player_cannot_form_a_group() -> None:
@@ -65,17 +65,30 @@ def test_negative_count_is_rejected() -> None:
         group_sizes(-1)
 
 
-def test_four_players_split_into_pairs_not_three_and_one() -> None:
+def test_four_players_are_one_fourball_not_two_pairs() -> None:
+    """The standard social grouping plays as a single match.
+
+    Splitting a fourball 2+2, as this used to, meant each hole was decided
+    within a pair and nobody played against the other two — which is not the
+    game four mates think they are playing.
+    """
     a, b, c, d = _ids(4)
-    assert build_groups([a, b, c, d]) == [[a, b], [c, d]]
+    assert build_groups([a, b, c, d]) == [[a, b, c, d]]
+
+
+def test_a_leftover_player_is_absorbed_into_a_four() -> None:
+    a, b, c, d, e = _ids(5)
+    assert build_groups([a, b, c, d, e]) == [[a, b, c], [d, e]]
+
+    seven = _ids(7)
+    assert build_groups(seven) == [seven[0:3], seven[3:7]]
 
 
 def test_order_is_preserved_so_draws_are_deterministic() -> None:
     participants = _ids(7)
     assert build_groups(participants) == [
         participants[0:3],
-        participants[3:5],
-        participants[5:7],
+        participants[3:7],
     ]
     assert build_groups(participants) == build_groups(participants)
 

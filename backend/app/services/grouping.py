@@ -12,7 +12,8 @@ ParticipantId = UUID
 HoleId = UUID
 
 MIN_GROUP_SIZE = 2
-MAX_GROUP_SIZE = 3
+TARGET_GROUP_SIZE = 3
+MAX_GROUP_SIZE = 4
 
 HOLES_PER_LOOP = 3
 
@@ -20,11 +21,20 @@ HOLES_PER_LOOP = 3
 def group_sizes(count: int) -> list[int]:
     """Work out the group sizes for `count` players, per ADR-004.
 
-    Groups are of three wherever possible, falling back to pairs. The case worth
-    knowing about is a remainder of one: four players must be 2+2 rather than
-    3+1, and seven must be 3+2+2, because a group of one has nobody to play
-    against. So when one player would be left over, the last group of three is
-    broken up into two pairs instead.
+    Three is the format, so groups are of three wherever possible. The other two
+    sizes exist only to absorb what is left over:
+
+    - a remainder of two becomes a pair, since five is 3+2
+    - a remainder of one is folded into a **fourball**, so seven is 3+4
+
+    Four matters more than it looks. It is the standard social grouping, and four
+    mates playing a loop together are one match — splitting them 2+2, as this did
+    before, meant each hole was won within a pair and nobody actually played
+    against the other two. Four players is now a single group of four, which
+    falls straight out of the remainder-of-one rule.
+
+    Nothing here ever returns a group of one: a lone player has nobody to play
+    against, which is the whole reason the remainder cases exist.
 
     Raises:
         ValueError: If `count` is negative, or is 1 — a lone player cannot form
@@ -37,21 +47,22 @@ def group_sizes(count: int) -> list[int]:
     if count == 1:
         raise ValueError("Cannot form a group from a single player")
 
-    remainder = count % MAX_GROUP_SIZE
-    threes = count // MAX_GROUP_SIZE
+    remainder = count % TARGET_GROUP_SIZE
+    threes = count // TARGET_GROUP_SIZE
 
     if remainder == 0:
-        return [MAX_GROUP_SIZE] * threes
+        return [TARGET_GROUP_SIZE] * threes
     if remainder == 2:
-        return [MAX_GROUP_SIZE] * threes + [MIN_GROUP_SIZE]
+        return [TARGET_GROUP_SIZE] * threes + [MIN_GROUP_SIZE]
 
-    # remainder == 1: trade a three for two pairs so nobody is left alone.
-    # threes >= 1 is guaranteed here because count >= 4 (count of 1 was rejected).
-    return [MAX_GROUP_SIZE] * (threes - 1) + [MIN_GROUP_SIZE, MIN_GROUP_SIZE]
+    # remainder == 1: promote the last three to a four rather than leave someone
+    # alone. threes >= 1 is guaranteed here because count >= 4 (1 was rejected),
+    # so a count of exactly four comes out as a single fourball.
+    return [TARGET_GROUP_SIZE] * (threes - 1) + [MAX_GROUP_SIZE]
 
 
 def build_groups(participant_ids: Sequence[ParticipantId]) -> list[list[ParticipantId]]:
-    """Split participants into groups of three, falling back to pairs.
+    """Split participants into groups of three, with a pair or a four left over.
 
     Order is preserved and the split is deterministic — the caller shuffles first
     if it wants randomised draws. Keeping this deterministic is what lets the

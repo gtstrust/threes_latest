@@ -72,8 +72,22 @@ async def _ready_tournament(
     return tournament_id, participant_ids
 
 
-async def _draw(client: AsyncClient, headers, tournament_id: str):
-    return await client.post(f"/tournaments/{tournament_id}/rounds", headers=headers)
+async def _draw(client: AsyncClient, headers, tournament_id: str, holes: list[int] | None = None):
+    """Draw a round. With no `holes` this posts no body at all, as it always has."""
+    if holes is None:
+        return await client.post(f"/tournaments/{tournament_id}/rounds", headers=headers)
+    return await client.post(
+        f"/tournaments/{tournament_id}/rounds", headers=headers, json={"hole_numbers": holes}
+    )
+
+
+async def _hole_numbers(client: AsyncClient, headers, course_id: str, group) -> list[int]:
+    """The hole numbers behind a group's loop, which the draw returns only as ids."""
+    course = await client.get(f"/courses/{course_id}", headers=headers)
+    numbers = {hole["id"]: hole["hole_number"] for hole in course.json()["holes"]}
+    return [
+        numbers[hole["hole_id"]] for hole in sorted(group["holes"], key=lambda h: h["sequence"])
+    ]
 
 
 # --- The draw ---------------------------------------------------------------
@@ -131,7 +145,7 @@ async def test_later_rounds_are_shuffled(client, make_token):
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("player_count", "expected_sizes"),
-    [(2, [2]), (4, [2, 2]), (6, [3, 3]), (7, [3, 2, 2]), (24, [3] * 8)],
+    [(2, [2]), (4, [4]), (6, [3, 3]), (7, [3, 4]), (24, [3] * 8)],
 )
 async def test_everyone_is_placed_in_exactly_one_group(
     client, make_token, player_count, expected_sizes
@@ -207,6 +221,149 @@ async def test_every_hole_played_belongs_to_the_tournaments_course(client, make_
     course_hole_ids = {hole["id"] for hole in course.json()["holes"]}
     played = {hole["hole_id"] for group in groups for hole in group["holes"]}
     assert played <= course_hole_ids
+
+
+# --- Playing part of a course -----------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_round_can_be_drawn_over_chosen_holes(client, make_token):
+    """Three mates on the 7th tee playing 7, 8 and 9 as the match.
+
+    The point is that the course record stays the real 18-hole one — the holes
+    actually played are recorded against the round, so nothing has to invent a
+    duplicate course to express "we played the back three of the front nine".
+    """
+    organiser = await _player(client, make_token, "organiser@example.com")
+    course_id = await _course(client, organiser, hole_count=18)
+    tournament_id = await _tournament(client, organiser, course_id)
+    await _set_status(client, organiser, tournament_id, TournamentStatus.REGISTRATION_OPEN)
+    for name in ("Dave", "Baz", "Simon"):
+        await _add_virtual(client, organiser, tournament_id, name)
+    await _set_status(client, organiser, tournament_id, TournamentStatus.REGISTRATION_CLOSED)
+
+    drawn = await _draw(client, organiser, tournament_id, holes=[7, 8, 9])
+
+    assert drawn.status_code == 201, drawn.text
+    groups = drawn.json()["groups"]
+    assert len(groups) == 1
+    assert await _hole_numbers(client, organiser, course_id, groups[0]) == [7, 8, 9]
+
+    # The tournament still points at the whole course, not a 3-hole copy of it.
+    tournament = await client.get(f"/tournaments/{tournament_id}", headers=organiser)
+    assert tournament.json()["course_id"] == course_id
+    course = await client.get(f"/courses/{course_id}", headers=organiser)
+    assert len(course.json()["holes"]) == 18
+
+
+@pytest.mark.asyncio
+async def test_chosen_holes_are_played_in_hole_order_however_they_are_sent(client, make_token):
+    organiser = await _player(client, make_token, "organiser@example.com")
+    course_id = await _course(client, organiser, hole_count=18)
+    tournament_id = await _tournament(client, organiser, course_id)
+    await _set_status(client, organiser, tournament_id, TournamentStatus.REGISTRATION_OPEN)
+    for index in range(3):
+        await _add_virtual(client, organiser, tournament_id, f"Player {index}")
+    await _set_status(client, organiser, tournament_id, TournamentStatus.REGISTRATION_CLOSED)
+
+    drawn = await _draw(client, organiser, tournament_id, holes=[9, 7, 8])
+
+    groups = drawn.json()["groups"]
+    assert await _hole_numbers(client, organiser, course_id, groups[0]) == [7, 8, 9]
+
+
+@pytest.mark.asyncio
+async def test_a_selection_can_cover_several_loops(client, make_token):
+    """Six holes chosen, two groups: a shotgun start over part of the course."""
+    organiser = await _player(client, make_token, "organiser@example.com")
+    course_id = await _course(client, organiser, hole_count=18)
+    tournament_id = await _tournament(client, organiser, course_id)
+    await _set_status(client, organiser, tournament_id, TournamentStatus.REGISTRATION_OPEN)
+    for index in range(6):
+        await _add_virtual(client, organiser, tournament_id, f"Player {index}")
+    await _set_status(client, organiser, tournament_id, TournamentStatus.REGISTRATION_CLOSED)
+
+    groups = (await _draw(client, organiser, tournament_id, holes=[10, 11, 12, 13, 14, 15])).json()[
+        "groups"
+    ]
+
+    played = [await _hole_numbers(client, organiser, course_id, group) for group in groups]
+    assert played == [[10, 11, 12], [13, 14, 15]]
+
+
+@pytest.mark.asyncio
+async def test_holes_the_course_does_not_have_are_refused(client, make_token):
+    organiser = await _player(client, make_token, "organiser@example.com")
+    course_id = await _course(client, organiser, hole_count=9)
+    tournament_id = await _tournament(client, organiser, course_id)
+    await _set_status(client, organiser, tournament_id, TournamentStatus.REGISTRATION_OPEN)
+    for index in range(3):
+        await _add_virtual(client, organiser, tournament_id, f"Player {index}")
+    await _set_status(client, organiser, tournament_id, TournamentStatus.REGISTRATION_CLOSED)
+
+    refused = await _draw(client, organiser, tournament_id, holes=[10, 11, 12])
+
+    assert refused.status_code == 409
+    assert "no hole [10, 11, 12]" in refused.json()["detail"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("holes", "because"),
+    [
+        ([7, 8], "multiple of 3"),
+        ([7, 8, 9, 10], "multiple of 3"),
+        ([7, 7, 8], "Duplicate"),
+        ([0, 1, 2], "between 1 and 18"),
+        ([17, 18, 19], "between 1 and 18"),
+    ],
+)
+async def test_a_selection_that_cannot_form_loops_is_rejected(client, make_token, holes, because):
+    """422 rather than a silently truncated loop.
+
+    The course-wide default does drop a remainder — eight holes give two loops —
+    but a selection is a statement of intent, so quietly ignoring part of it
+    would be the worse answer.
+    """
+    organiser = await _player(client, make_token, "organiser@example.com")
+    tournament_id, _ = await _ready_tournament(client, organiser, player_count=3)
+
+    refused = await _draw(client, organiser, tournament_id, holes=holes)
+
+    assert refused.status_code == 422
+    assert because in refused.text
+
+
+@pytest.mark.asyncio
+async def test_drawing_without_a_body_still_plays_the_whole_course(client, make_token):
+    """The call every existing client makes, which must not start 422ing."""
+    organiser = await _player(client, make_token, "organiser@example.com")
+    course_id = await _course(client, organiser, hole_count=6)
+    tournament_id = await _tournament(client, organiser, course_id)
+    await _set_status(client, organiser, tournament_id, TournamentStatus.REGISTRATION_OPEN)
+    for index in range(6):
+        await _add_virtual(client, organiser, tournament_id, f"Player {index}")
+    await _set_status(client, organiser, tournament_id, TournamentStatus.REGISTRATION_CLOSED)
+
+    drawn = await client.post(f"/tournaments/{tournament_id}/rounds", headers=organiser)
+
+    assert drawn.status_code == 201, drawn.text
+    played = [
+        await _hole_numbers(client, organiser, course_id, group) for group in drawn.json()["groups"]
+    ]
+    assert played == [[1, 2, 3], [4, 5, 6]]
+
+
+@pytest.mark.asyncio
+async def test_four_mates_are_drawn_as_one_group(client, make_token):
+    """A fourball is one match, not two pairs — see ADR-004."""
+    organiser = await _player(client, make_token, "organiser@example.com")
+    tournament_id, registered = await _ready_tournament(client, organiser, player_count=4)
+
+    groups = (await _draw(client, organiser, tournament_id, holes=[7, 8, 9])).json()["groups"]
+
+    assert len(groups) == 1
+    assert sorted(m["participant_id"] for m in groups[0]["members"]) == sorted(registered)
 
 
 # --- Refusing to draw -------------------------------------------------------

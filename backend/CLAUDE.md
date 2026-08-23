@@ -159,8 +159,15 @@ Two consequences worth knowing before changing them:
   assertions possible in tests. The randomness lives in `RoundService.draw_round`, which shuffles
   the participant list before calling it for round 2 onwards (round 1 stays in registration order
   so people play with whoever they signed up alongside).
-- **`group_sizes` never returns a group of 1.** A remainder of one trades a three for two pairs,
-  so 4 players is 2+2 and 7 is 3+2+2 — not 3+1 or 3+3+1.
+- **`group_sizes` never returns a group of 1.** A remainder of one is folded into a **four**, so 4
+  players is one fourball and 7 is 3+4 — not 3+1, and no longer 2+2 or 3+2+2. A remainder of two is
+  still a pair. Three constants now, and the distinction matters: `TARGET_GROUP_SIZE` (3) is what
+  the arithmetic divides by, while `MAX_GROUP_SIZE` (4) only ever appears as the remainder case.
+  Dividing by `MAX_GROUP_SIZE` would turn the whole field into fourballs and quietly stop the
+  platform being about threes.
+- **`build_loops` chunks whatever holes it is given**, which since the draw learned `hole_numbers`
+  is not always the whole course. `RoundService._select_holes` narrows and sorts them first; the
+  pure function is unchanged and still assumes playing order.
 
 ### Scoring: the two tables, and one deliberate import
 

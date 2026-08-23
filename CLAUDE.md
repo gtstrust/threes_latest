@@ -180,8 +180,12 @@ All points calculation and tie-breaking happens on the backend. The client submi
 ### ADR-003: Tournament state machine
 Tournaments follow a strict state machine: `CREATED → REGISTRATION_OPEN → REGISTRATION_CLOSED → ROUND_IN_PROGRESS → ROUND_COMPLETE → TOURNAMENT_COMPLETE`. Invalid transitions are rejected by the API.
 
-### ADR-004: Groups of exactly 3
-MVP enforces groups of exactly 3 players. If player count is not divisible by 3, the last group may have 2 players (a bye is not needed; 2-player groups use the same scoring rules). This simplifies the UI and scoring logic.
+### ADR-004: Groups of 3, with a pair or a fourball to absorb the remainder
+Three is the format, so the draw makes groups of 3 wherever it can. The other two sizes exist only to place players a clean split would leave over: a remainder of two becomes a **pair** (5 is 3+2), and a remainder of one is folded into a **fourball** (7 is 3+4). A group of one is never produced — a lone player has nobody to play against, which is the whole reason the other sizes exist.
+
+**Amended: four used to be 2+2.** Four is the standard social grouping, and four mates playing a loop together are one match. Splitting them into two pairs meant each hole was decided *within* a pair, so nobody actually played against the other two — a materially different competition from the one they thought they were in. Four players is now a single group of four, which falls straight out of the remainder-of-one rule rather than needing a special case.
+
+Nothing in the scoring engine changed with it: `score_hole` takes a mapping of any size, and ADR-007's cascade is defined over "the players tied on strokes" without reference to how many there are. The cost is that a fourball has a slightly lower chance of an outright stroke winner than a three, so tie-breaks are asked marginally more often.
 
 ### ADR-005: Offline-resilient score entry — Phase 2
 Deferred from MVP (see `THREES_STRATEGY.md` §2). MVP score submission is online-only with retry-on-failure and a connectivity warning; no local persistence. Phase 2 revisits this only if pilot feedback shows on-course connectivity is actually a problem: Flutter would store pending score submissions in local storage (Hive), sync when connectivity returns, show a "pending" indicator, and the server would resolve conflicts (last-write-wins with timestamp).
@@ -301,11 +305,18 @@ API_BASE_URL=http://localhost:8000
 - **Round**: One stage of a tournament — a draw of groups all playing simultaneously. Carries its own
   status (`PENDING` / `IN_PROGRESS` / `COMPLETE`), distinct from the tournament's, because a
   tournament runs several rounds and its single status can only describe the current one.
-- **Group**: 2–3 players playing one 3-hole **loop** together. One group = one match.
-- **Loop**: The 3 holes a group plays, taken as consecutive triples of the course's entered holes.
+- **Group**: 2–4 players playing one 3-hole **loop** together. One group = one match. Three is the
+  format; a pair or a fourball absorbs whatever a clean split leaves over (ADR-004).
+- **Loop**: The 3 holes a group plays, taken as consecutive triples of the holes in play.
   **Each group gets its own loop** — a shotgun start, so the whole field tees off at once instead of
   queueing. A course caps this: 18 holes make only 6 loops, so above 18 players groups share loops
   round-robin and tee off staggered. That's expected, not an error.
+- **Playing part of a course**: the draw takes an optional `hole_numbers` — `[7, 8, 9]` for a match
+  played inside a normal round. The tournament stays attached to the real course record; which holes
+  were played is recorded per group in `group_holes`, so a club never needs a duplicate "holes 7-9"
+  course. Omitted means the whole course. A selection must be a multiple of 3, unlike the course-wide
+  default, which simply leaves a remainder unused: a course is a record of what exists, a selection
+  is a statement of intent, and silently dropping part of one would be the worse answer.
 - **The draw**: Round 1 groups players in **registration order**, so people play with the mates they
   signed up alongside. Round 2 onwards shuffles. Both fall out of `build_groups` being deterministic
   and order-preserving — the ordering decision lives in `RoundService`, not the pure function.

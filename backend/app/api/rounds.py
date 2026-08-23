@@ -12,7 +12,7 @@ from app.core.deps import (
 )
 from app.models.round import Round
 from app.models.tournament import Tournament
-from app.schemas.round import RoundRead, RoundWithGroups
+from app.schemas.round import RoundDraw, RoundRead, RoundWithGroups
 from app.services.round import (
     DrawNotPossible,
     RoundNotDrawable,
@@ -46,16 +46,25 @@ async def draw_round(
     current_user: CurrentUserDep,
     tournaments: TournamentServiceDep,
     rounds: RoundServiceDep,
+    # Last, and defaulted, so a bodyless POST still draws the whole course —
+    # that was the only way to call this until now. A required schema whose
+    # fields are all optional would 422 on a missing body, which is a nasty
+    # thing to do to a caller that has not changed.
+    payload: RoundDraw | None = None,
 ) -> RoundWithGroups:
     """Draw the next round and start play.
 
     This is the only way a tournament reaches ROUND_IN_PROGRESS — drawing the
     groups and moving the status are one action, so the two can't disagree.
+
+    Send `hole_numbers` to play part of the course — `{"hole_numbers": [7, 8, 9]}`
+    for a match over the back three of the front nine. The tournament stays
+    attached to the real course; the holes played are recorded against the round.
     """
     tournament = await _tournament_or_404(tournament_id, tournaments)
     require_organiser(tournament, current_user)
     try:
-        round_ = await rounds.draw_round(tournament)
+        round_ = await rounds.draw_round(tournament, payload.hole_numbers if payload else None)
     except (RoundNotDrawable, DrawNotPossible) as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return RoundWithGroups.model_validate(round_)
