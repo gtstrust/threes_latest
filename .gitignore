@@ -1,0 +1,3 @@
+# macOS Finder metadata. Created in any directory the Finder has looked at, so
+# it is ignored repo-wide rather than per-package.
+.DS_Store
