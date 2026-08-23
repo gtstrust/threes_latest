@@ -109,27 +109,76 @@ elsewhere with `TEST_DATABASE_URL`; it refuses to run against a non-local host.
 HTTP against a running server — six authenticated players, two courses, one tournament, two rounds
 of three holes with the groups redrawn in between, every hole scored, and a winner declared.
 
-```bash
-docker compose up -d postgres
-alembic upgrade head
-uvicorn app.main:app --port 8000        # in another shell
+It checks its own results — every hole's `decided_by` against the strokes it scripted, and the
+leaderboards against the score responses it received — so it doubles as a smoke test. The twelve
+hole-cards exercise all three levels of the ADR-007 cascade, including the re-submit that carries a
+tie-break answer and one hole nobody wins.
 
+### Running it
+
+It needs Postgres up, the schema migrated, and the API listening. From `backend/`, in one shell:
+
+```bash
+source .venv/bin/activate
+docker compose up -d postgres
+alembic upgrade head                 # threes_dev — not the threes_test the suite uses
+uvicorn app.main:app --port 8000
+```
+
+Leave that running, and in a second shell:
+
+```bash
+cd backend
+source .venv/bin/activate
 python scripts/demo_tournament.py
 ```
 
-It checks its own results — every hole's `decided_by` against the strokes it scripted, and the
-leaderboards against the score responses it received — printing a checklist and exiting non-zero if
-the API disagrees, so it doubles as a smoke test. The twelve hole-cards are scripted to exercise all
-three levels of the ADR-007 cascade, including the re-submit that carries a tie-break answer and one
-hole nobody wins.
+It prints the day as it is played — the draw, every card, the tie-breaks as they are asked, each
+round's standings — and finishes with the final leaderboard, the winner, and a checklist:
 
-The script signs its own Supabase-shaped JWTs, so it needs `SUPABASE_JWT_SECRET` to hold the same
-value the server is using — it reads `--jwt-secret`, then the environment, then `.env`. Everything
-else has a working default; see `--help` for `--base-url`, `--seed` and `--quiet`.
+```
+FINAL STANDINGS
+  pos  player            pts  strokes  holes
+    1  Kim Sandoval        3       26      6
+    2  Priya Nair          2       21      6
+    ...
+
+  WINNER: Kim Sandoval — 3 points, 26 strokes
+
+CHECKS
+  ✓ round 1 hole 2 decided by closest_to_pin
+  ✓ tournament board: positions, points and strokes match the scores entered
+  ✓ every player scored six holes
+  ...
+
+PASS · 24 checks · 48 requests
+```
+
+**Exit status is 0 when every check passes and 1 otherwise**, so it works in a pipeline as readily
+as by eye — `--quiet` drops the transcript and prints just the verdict and any failures.
+
+### Options
+
+| Flag | Default | What it does |
+|------|---------|--------------|
+| `--base-url` | `http://localhost:8000` | which server to play against |
+| `--jwt-secret` | `$SUPABASE_JWT_SECRET`, else `.env` | must match what the server is using |
+| `--env-file` | `backend/.env` | where to look for that secret |
+| `--seed` | unset | shuffles which scripted card lands on which hole |
+| `--quiet` | off | verdict only |
+
+### If it refuses to start
+
+The script signs its own Supabase-shaped JWTs — there is no login endpoint to call, since this API
+only ever verifies them — so before doing anything it calls `GET /auth/me` and tells you which end
+is at fault. A **500** means the server's `SUPABASE_JWT_SECRET` is unset; a **401** means it is set
+to something other than what the script is using. A connection error names the URL it tried.
+
+### What it leaves behind
 
 It writes to whatever database the server is pointed at, normally `threes_dev`, and **leaves its
 data behind** — the API has no DELETE for a tournament or a course. Each run creates its own players
-and courses, so runs accumulate rather than collide.
+and suffixes its course names, so runs accumulate rather than collide.
 
 ## Linting & Type Checking
 
@@ -166,6 +215,7 @@ app/
 ├── repositories/   # Database access layer
 └── main.py         # FastAPI app entry point
 migrations/         # Alembic migrations
+scripts/            # demo_tournament.py — plays a whole event against a running server
 tests/
 ```
 
