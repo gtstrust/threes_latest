@@ -112,13 +112,33 @@ value for the `backend` service for this reason.
 
 ### Implementation status
 
-Every router is implemented — **no 501 stubs remain**. The one piece of the scoring engine still
-unwired is `rank_leaderboard`: nothing calls it outside `tests/test_scoring.py`. Building the
-tournament-wide leaderboard on top of it is M8 in `../ROADMAP.md`, and it should read
-`hole_scores` as `SUM(points) GROUP BY participant_id` rather than recomputing from strokes.
+Every router is implemented — **no 501 stubs remain** — and every part of the scoring engine now
+has a caller. What is left of the backend is M9 in `../ROADMAP.md` (Supabase Realtime), which is
+only a refetch signal for the leaderboard endpoints and is parked until `frontend/` exists.
 
 Follow the `rounds` or `scores` slice as the template — both are recent and show the layering in
 full.
+
+### The leaderboard
+
+`services/leaderboard.py` is thin on purpose: `rank_leaderboard` orders, `ScoreRepository`
+sums, and the service supplies the one thing neither can know — **who belongs on the board**.
+
+- **The field is established first, then the aggregate is merged onto it.** A bare
+  `SUM(points) GROUP BY participant_id` returns only players who have already scored, which
+  early in a day is almost nobody. Everyone drawn is listed, on nothing until they score.
+- **Registration order is load-bearing.** `rank_leaderboard`'s sort is stable, so players level
+  on both points and strokes come out in input order. `list_for_tournament` orders by
+  `created_at`; feeding the aggregate's mapping order instead would leave tied players
+  shuffling between polls.
+- **A round's field comes from its draw**, not from the tournament's participants. Identical
+  today, but knockout progression would make a later round a subset — and the board would then
+  quietly list eliminated players.
+
+`totals_for_tournament` / `totals_for_round` on `ScoreRepository` are the only aggregate queries
+in the codebase. `hole_scores` has no `tournament_id`, so both reach one via
+`groups → rounds`. Don't copy `ParticipantRepository.count_for_tournament`, which fetches rows
+and calls `len()`; ADR-009 stores points precisely so this read path stays a real SQL aggregate.
 
 ### The pure core
 

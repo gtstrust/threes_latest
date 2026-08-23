@@ -140,10 +140,12 @@ migrations/         # Alembic migrations
 tests/
 ```
 
-Routes → services → repositories → database. Every router is implemented —
-there are no stub endpoints left. The one piece of business logic not yet
-wired to a route is `rank_leaderboard` in `services/scoring.py`; the
-tournament leaderboard is M8 in [`../ROADMAP.md`](../ROADMAP.md).
+Routes → services → repositories → database. Every router is implemented,
+there are no stub endpoints left, and every piece of the scoring engine is now
+wired to a route. What remains in Phase 1 is the Flutter frontend, plus
+Supabase Realtime (M9 in [`../ROADMAP.md`](../ROADMAP.md)) — which only pushes
+clients to refetch the leaderboard endpoints below, since ADR-001 keeps the
+ranking itself server-side.
 
 ## API surface
 
@@ -172,6 +174,8 @@ request/response schemas are at http://localhost:8000/docs.
 | `GET` | `/groups/{id}` | One group, its members and its loop |
 | `POST` | `/groups/{id}/holes/{hole_id}/scores` | Enter the group's strokes for a hole |
 | `GET` | `/groups/{id}/scores` | The group's card so far |
+| `GET` | `/tournaments/{id}/leaderboard` | Cumulative standings across every round |
+| `GET` | `/rounds/{id}/leaderboard` | Standings for one round |
 
 Two of these are worth knowing before you call them:
 

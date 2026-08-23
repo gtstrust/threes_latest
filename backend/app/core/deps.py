@@ -10,6 +10,7 @@ from app.models.course import Course
 from app.models.round import Group
 from app.models.tournament import Tournament
 from app.services.course import CourseService
+from app.services.leaderboard import LeaderboardService
 from app.services.participant import ParticipantService
 from app.services.player import PlayerService
 from app.services.round import RoundService
@@ -61,6 +62,12 @@ async def get_score_entry_service(
     return ScoreEntryService(session)
 
 
+async def get_leaderboard_service(
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> LeaderboardService:
+    return LeaderboardService(session)
+
+
 CurrentUserDep = Annotated[CurrentUser, Depends(get_current_user)]
 PlayerServiceDep = Annotated[PlayerService, Depends(get_player_service)]
 TournamentServiceDep = Annotated[TournamentService, Depends(get_tournament_service)]
@@ -68,6 +75,7 @@ CourseServiceDep = Annotated[CourseService, Depends(get_course_service)]
 ParticipantServiceDep = Annotated[ParticipantService, Depends(get_participant_service)]
 RoundServiceDep = Annotated[RoundService, Depends(get_round_service)]
 ScoreEntryServiceDep = Annotated[ScoreEntryService, Depends(get_score_entry_service)]
+LeaderboardServiceDep = Annotated[LeaderboardService, Depends(get_leaderboard_service)]
 
 
 def require_course_owner(course: Course, current_user: CurrentUser) -> None:
