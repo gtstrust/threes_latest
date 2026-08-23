@@ -102,6 +102,35 @@ not the `threes_dev` database Alembic manages, since tests drop every table and 
 leave your migrated schema empty while `alembic_version` still claimed to be up to date. Point it
 elsewhere with `TEST_DATABASE_URL`; it refuses to run against a non-local host.
 
+## End-to-end script
+
+`pytest` drives the app in-process with the schema dropped and rebuilt around every test.
+`scripts/demo_tournament.py` does the opposite: it plays a complete corporate golf day over real
+HTTP against a running server — six authenticated players, two courses, one tournament, two rounds
+of three holes with the groups redrawn in between, every hole scored, and a winner declared.
+
+```bash
+docker compose up -d postgres
+alembic upgrade head
+uvicorn app.main:app --port 8000        # in another shell
+
+python scripts/demo_tournament.py
+```
+
+It checks its own results — every hole's `decided_by` against the strokes it scripted, and the
+leaderboards against the score responses it received — printing a checklist and exiting non-zero if
+the API disagrees, so it doubles as a smoke test. The twelve hole-cards are scripted to exercise all
+three levels of the ADR-007 cascade, including the re-submit that carries a tie-break answer and one
+hole nobody wins.
+
+The script signs its own Supabase-shaped JWTs, so it needs `SUPABASE_JWT_SECRET` to hold the same
+value the server is using — it reads `--jwt-secret`, then the environment, then `.env`. Everything
+else has a working default; see `--help` for `--base-url`, `--seed` and `--quiet`.
+
+It writes to whatever database the server is pointed at, normally `threes_dev`, and **leaves its
+data behind** — the API has no DELETE for a tournament or a course. Each run creates its own players
+and courses, so runs accumulate rather than collide.
+
 ## Linting & Type Checking
 
 ```bash
@@ -140,10 +169,12 @@ migrations/         # Alembic migrations
 tests/
 ```
 
-Routes → services → repositories → database. Every router is implemented —
-there are no stub endpoints left. The one piece of business logic not yet
-wired to a route is `rank_leaderboard` in `services/scoring.py`; the
-tournament leaderboard is M8 in [`../ROADMAP.md`](../ROADMAP.md).
+Routes → services → repositories → database. Every router is implemented,
+there are no stub endpoints left, and every piece of the scoring engine is now
+wired to a route. What remains in Phase 1 is the Flutter frontend, plus
+Supabase Realtime (M9 in [`../ROADMAP.md`](../ROADMAP.md)) — which only pushes
+clients to refetch the leaderboard endpoints below, since ADR-001 keeps the
+ranking itself server-side.
 
 ## API surface
 
@@ -172,6 +203,8 @@ request/response schemas are at http://localhost:8000/docs.
 | `GET` | `/groups/{id}` | One group, its members and its loop |
 | `POST` | `/groups/{id}/holes/{hole_id}/scores` | Enter the group's strokes for a hole |
 | `GET` | `/groups/{id}/scores` | The group's card so far |
+| `GET` | `/tournaments/{id}/leaderboard` | Cumulative standings across every round |
+| `GET` | `/rounds/{id}/leaderboard` | Standings for one round |
 
 Two of these are worth knowing before you call them:
 

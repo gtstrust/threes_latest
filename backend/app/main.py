@@ -5,6 +5,7 @@ from app.api import (
     auth,
     courses,
     groups,
+    leaderboard,
     participants,
     players,
     rounds,
@@ -32,6 +33,7 @@ app.include_router(participants.router)
 app.include_router(rounds.router)
 app.include_router(groups.router)
 app.include_router(scores.router)
+app.include_router(leaderboard.router)
 
 
 @app.get("/health", response_model=HealthResponse)

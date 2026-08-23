@@ -14,16 +14,19 @@ Only `backend/` exists so far — `frontend/` and `docs/` in the structure below
 layout, not yet created.
 
 Implemented end-to-end in the backend: **auth, players, courses/holes, tournaments (with the
-ADR-003 state machine), participants, rounds/groups (the shotgun-start draw), and score entry
-(the ADR-007 cascade, persisted)**. **No stub routers remain** — every route is real.
-
-Not built: **the leaderboard** (`ROADMAP.md` M8). `rank_leaderboard` in `services/scoring.py` is
-written and tested but still has no caller; it is the one piece of the scoring engine not yet
-wired up. There is no tournament-wide standings endpoint and no Supabase Realtime.
+ADR-003 state machine), participants, rounds/groups (the shotgun-start draw), score entry
+(the ADR-007 cascade, persisted), and the leaderboard**. **No stub routers remain** — every route
+is real, and every part of the scoring engine now has a caller.
 
 Score entry landed as `hole_scores` (raw strokes + the points each earned) and `hole_results`
-(what the cascade decided, and which level decided it). M8's leaderboard is meant to read the
-former as `SUM(points) GROUP BY participant_id`.
+(what the cascade decided, and which level decided it). The leaderboard reads the former as
+`SUM(points) GROUP BY participant_id`, exactly as ADR-009 intended, and ranks it with
+`rank_leaderboard`. Two endpoints: `GET /tournaments/{id}/leaderboard` (cumulative) and
+`GET /rounds/{id}/leaderboard` (one round).
+
+Not built: **Supabase Realtime** (`ROADMAP.md` M9) and the whole of `frontend/`. Realtime is only
+a signal to refetch the endpoints above — ADR-001 keeps the ranking server-side — so it is purely
+additive and waits on there being a client to subscribe with.
 
 See [`backend/CLAUDE.md`](./backend/CLAUDE.md) for backend-specific commands, the auth/JWT model,
 and implementation gotchas (e.g. new models must be registered in `app/models/__init__.py` or
@@ -41,6 +44,7 @@ threes/
 │   │   │   ├── rounds.py
 │   │   │   ├── groups.py
 │   │   │   ├── scores.py
+│   │   │   ├── leaderboard.py
 │   │   │   ├── courses.py
 │   │   │   ├── participants.py
 │   │   │   └── players.py
@@ -53,6 +57,7 @@ threes/
 │   │   ├── services/         # Business logic layer
 │   │   │   ├── scoring.py    # Points engine + leaderboard ranking (pure)
 │   │   │   ├── score_entry.py # Score entry — persists what scoring.py decides
+│   │   │   ├── leaderboard.py # Standings — zero-fills the field, then ranks it
 │   │   │   ├── tournament.py # Tournament state machine
 │   │   │   ├── grouping.py   # Draw: group sizes + shotgun-start loops (pure)
 │   │   │   ├── round.py      # Round lifecycle — where draw + field + course meet

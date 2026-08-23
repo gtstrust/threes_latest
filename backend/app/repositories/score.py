@@ -1,16 +1,74 @@
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.round import Group, Round
 from app.models.score import HoleResult, HoleScore
 from app.services.scoring import DecidedBy
+
+
+@dataclass(frozen=True)
+class ScoreTotals:
+    """What one participant has accumulated over some set of holes."""
+
+    points: int
+    strokes: int
+    holes_played: int
+
+
+def _totals_query() -> Select[tuple[UUID, int, int, int]]:
+    """SUM(points), SUM(strokes) and a hole count, per participant.
+
+    ADR-009 stores points on the score row precisely so this is a plain
+    aggregate rather than a walk over per-hole verdicts. `hole_scores` carries
+    no tournament_id, so both callers reach one through `groups`.
+    """
+    return select(
+        HoleScore.participant_id,
+        func.sum(HoleScore.points),
+        func.sum(HoleScore.strokes),
+        func.count(HoleScore.id),
+    ).group_by(HoleScore.participant_id)
 
 
 class ScoreRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    async def _totals(self, query: Select[tuple[UUID, int, int, int]]) -> dict[UUID, ScoreTotals]:
+        result = await self._session.execute(query)
+        # SUM() comes back as Decimal; coerce here so nothing downstream has to.
+        return {
+            participant_id: ScoreTotals(
+                points=int(points), strokes=int(strokes), holes_played=int(holes)
+            )
+            for participant_id, points, strokes, holes in result.all()
+        }
+
+    async def totals_for_tournament(self, tournament_id: UUID) -> dict[UUID, ScoreTotals]:
+        """Every participant who has scored a hole anywhere in this tournament.
+
+        Participants yet to score are absent rather than zero — filling the rest
+        of the field in is the leaderboard service's job, since only it knows
+        who the field is.
+        """
+        return await self._totals(
+            _totals_query()
+            .join(Group, Group.id == HoleScore.group_id)
+            .join(Round, Round.id == Group.round_id)
+            .where(Round.tournament_id == tournament_id)
+        )
+
+    async def totals_for_round(self, round_id: UUID) -> dict[UUID, ScoreTotals]:
+        """The same, narrowed to one round — one join rather than two."""
+        return await self._totals(
+            _totals_query()
+            .join(Group, Group.id == HoleScore.group_id)
+            .where(Group.round_id == round_id)
+        )
 
     async def list_scores_for_hole(self, group_id: UUID, hole_id: UUID) -> Sequence[HoleScore]:
         result = await self._session.execute(

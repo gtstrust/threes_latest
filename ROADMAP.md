@@ -27,12 +27,23 @@ Web-only. No native apps, no AI features, no offline-first sync, no Fun Rounds
 | M5 | Courses and holes; tournaments linked to a course | ✅ Done |
 | M6 | Rounds, groups, and the shotgun-start draw | ✅ Done |
 | M7 | Score submission + points persistence (ADR-002) | ✅ Done |
-| M8 | Leaderboard + Supabase Realtime | ⬜ Next |
+| M8 | Leaderboard — per round and cumulative | ✅ Done |
+| M9 | Supabase Realtime | ⬜ Next |
 
 M7 wired `score_hole` up: strokes come in per group per hole, the engine decides the hole, and
-both the strokes and the decided result are persisted (`hole_scores`, `hole_results`). Every
-backend router is now real — no 501 stubs remain. `rank_leaderboard` is still uncalled; that is
-M8's job, and it reads what M7 writes as `SUM(points) GROUP BY participant_id`.
+both the strokes and the decided result are persisted (`hole_scores`, `hole_results`). M8 then
+wired up `rank_leaderboard`, the last uncalled part of the engine, reading what M7 writes as
+`SUM(points) GROUP BY participant_id` — `GET /tournaments/{id}/leaderboard` for the cumulative
+board and `GET /rounds/{id}/leaderboard` for one round. **The whole backend scoring path is now
+real**: no 501 stubs, no unreachable functions.
+
+Both boards list the *whole field*, including players yet to score, since a board missing half
+the field early in the day reads as a bug rather than as "they haven't finished a hole yet".
+
+M9 is what remains of the backend, and it is small: Realtime only tells clients to refetch the
+endpoints above — ADR-001 keeps the ranking server-side — so it needs `wal_level=logical`, a
+publication covering `hole_scores`, and an anon key in config. It is parked until there is a
+client to subscribe with.
 
 Scoring rules are settled — see ADR-007. Holes are never halved; a hole has one winner or none,
 decided by strokes → closest to the pin → longest drive on the fairway. Points are integers.
