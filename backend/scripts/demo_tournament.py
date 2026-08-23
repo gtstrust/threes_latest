@@ -643,11 +643,17 @@ def main(argv: list[str] | None = None) -> int:
                 ]
             )
 
-            drawn = [
+            drawn_ids = {
                 str(member["participant_id"])
                 for group in round_["groups"]
                 for member in group["members"]
-            ]
+            }
+            # Registration order, not draw order. The server ranks a round by
+            # filtering the tournament's field, and rank_leaderboard's sort is
+            # stable, so registration order is what separates players level on
+            # both points and strokes. Reading the draw instead only agrees in
+            # round 1, where the two happen to coincide.
+            drawn = [pid for pid in registration_order if pid in drawn_ids]
             board = api.get(f"/rounds/{round_['id']}/leaderboard", token=organiser["token"])
             print_board(f"Round {round_['round_number']} standings", board, report)
             verify_board(
