@@ -219,6 +219,34 @@ a cycle — **don't add a models import there**.
 store the lowercase value instead, keeping the database label, the API response and ADR-007's
 vocabulary identical.
 
+### The Supabase database, and why every table has RLS on
+
+`DATABASE_URL` can point at either the local Docker Postgres or the Supabase project; the app does
+not care, but two things about Supabase do not apply locally:
+
+- **`public` is served to the internet.** Supabase exposes it through PostgREST, and the key that
+  reaches it is the *publishable* one the frontend ships to every browser. A table created by
+  Alembic has RLS **off** and inherits grants for `anon`/`authenticated`, so without intervention
+  all eleven tables are readable and writable by anyone who reads the site's JavaScript. Migration
+  `20260824_0006` enables RLS on every table and defines **no policies**: PostgREST matches nothing
+  and sees nothing, while the app connects as the tables' owner and bypasses RLS untouched.
+  This is not the RLS ADR-010 rejected — that was a *policy* restating `require_can_view` in SQL.
+  A blanket deny encodes no rule, so there is nothing to drift.
+- **Alembic's own table was the gap.** `alembic_version` is created by Alembic, not by our models,
+  so `0006` missed it — and `anon` could not merely read it but **UPDATE** it, which corrupts every
+  future migration while touching no tournament data. `20260824_0007` revokes the grants outright
+  (RLS restricts rows; here the wanted answer is no access at all) and enables RLS as a backstop.
+  Both statements are guarded by a `pg_roles` check so the migration still runs on a plain Postgres
+  that has no `anon` role.
+
+**The direct connection host is IPv6-only.** `db.<ref>.supabase.co` publishes no A record, so any
+network without IPv6 must use the pooler string from the dashboard instead. CI is the obvious place
+this bites.
+
+**Do not point `scripts/demo_tournament.py` at a server wired to Supabase.** It writes a full
+tournament and there is no DELETE for a tournament or a course, so the data stays. The test suite is
+safe by construction: `conftest.py` refuses any non-local `TEST_DATABASE_URL`.
+
 ### Realtime — the one outbound call
 
 `services/realtime.py` is the only place this backend talks *out* to a third party. It sends a

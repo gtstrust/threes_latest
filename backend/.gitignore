@@ -5,6 +5,10 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .env
+# Any hand-made copy of it is just as sensitive — `.env` alone does not match these.
+.env.backup-*
+.env.bak
+.env.*.local
 *.egg-info/
 .coverage
 htmlcov/
