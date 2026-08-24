@@ -35,5 +35,18 @@ class Settings(BaseSettings):
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
+    @property
+    def supabase_jwks_url(self) -> str | None:
+        """Where the project publishes its JWT signing keys, or None if there is none.
+
+        Derived rather than configured separately: it is always this path under
+        the project URL, and a second env var would only be a way for the two to
+        disagree.
+        """
+        if not is_configured(self.supabase_url):
+            return None
+        assert self.supabase_url is not None  # narrowed by is_configured
+        return f"{self.supabase_url.rstrip('/')}/auth/v1/.well-known/jwks.json"
+
 
 settings = Settings()

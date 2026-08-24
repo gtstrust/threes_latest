@@ -24,7 +24,7 @@ _bearer_scheme = HTTPBearer()
 async def get_current_user(
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(_bearer_scheme)],
 ) -> CurrentUser:
-    return decode_supabase_jwt(credentials.credentials)
+    return await decode_supabase_jwt(credentials.credentials)
 
 
 async def get_player_service(

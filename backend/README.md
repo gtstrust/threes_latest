@@ -65,7 +65,7 @@ protected endpoints (anything using `get_current_user`) return `500` until
 |-------------------------|--------------------------------------------------------------------------|
 | `SUPABASE_URL`          | Your Supabase project URL                                                |
 | `SUPABASE_KEY`          | Supabase service-role key                                                |
-| `SUPABASE_JWT_SECRET`   | Used to verify Supabase-issued JWTs (HS256) on incoming requests          |
+| `SUPABASE_JWT_SECRET`   | Shared secret for HS256 tokens the tests and demo script sign themselves. Real Supabase tokens are ES256, verified against the project's JWKS instead |
 | `DATABASE_URL`          | Async SQLAlchemy connection string (`postgresql+asyncpg://...`)          |
 | `ENVIRONMENT`           | `development` / `production`                                             |
 | `CORS_ORIGINS`          | Comma-separated list of allowed origins                                  |

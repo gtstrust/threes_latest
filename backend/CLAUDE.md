@@ -91,7 +91,7 @@ service that coordinates several repositories.
 Supabase Auth issues JWTs (magic link) directly to the client; **this API never sees a password
 and does not proxy login**. Every protected route depends on `CurrentUserDep`
 (`app/core/deps.py`), which verifies the bearer token itself via `decode_supabase_jwt`
-(`app/core/security.py`) — HS256, shared-secret (`SUPABASE_JWT_SECRET`), no DB lookup. Data
+(`app/core/security.py`) — no DB lookup. Data
 access uses SQLAlchemy/asyncpg against Supabase's Postgres directly, **not** the `supabase-py`
 client — the JWT secret is the only piece of Supabase's SDK surface this backend depends on.
 
@@ -99,8 +99,34 @@ client — the JWT secret is the only piece of Supabase's SDK surface this backe
 imply a `players` row exists — `id` mirrors `auth.users.id` but the row is created lazily.
 `POST /players` is the idempotent "ensure my profile exists" call; the frontend must call it once
 right after login before any other `/players` endpoint, or `GET /players/me` / `PATCH
-/players/me` will 404. `decode_supabase_jwt` returns 500 (not 401) when `SUPABASE_JWT_SECRET` is
-unset — that's a config error, not an auth failure — see `test_security.py` for the distinction.
+/players/me` will 404.
+
+**Two verification paths, chosen by the token itself.** A real project signs with **ES256** and
+publishes the public key at its JWKS endpoint, so a browser's magic-link token is verified against
+that. But `tests/conftest.py` and `scripts/demo_tournament.py` sign their own **HS256** tokens
+against `SUPABASE_JWT_SECRET`, because Supabase issues tokens straight to clients and there is no
+login endpoint here to call. An asymmetric token carries a `kid` naming its signing key and a
+shared-secret one does not, which is what `decode_supabase_jwt` branches on. Neither path is
+legacy — deleting the HS256 one takes the test suite and the demo script with it.
+
+**This project is ES256-only.** Verified by minting a real token through the Auth admin API: the
+header is `{"alg": "ES256", "kid": "505bee7a-…"}`, and the legacy HS256 secret cannot verify it
+(`InvalidAlgorithmError` — it is not an HS256 token at all). So `SUPABASE_JWT_SECRET` here is **not**
+a Supabase value and must not be set to one: it is a locally-generated random string, used only by
+the tests and the demo script. Keeping a production credential out of the HS256 branch means that
+even if it leaks, it cannot mint a token this server accepts — confirmed by feeding the leaked
+legacy secret's forgery to `GET /auth/me` and getting a 401.
+
+The JWKS is cached by `kid` for `JWKS_CACHE_TTL_SECONDS`, behind an `asyncio.Lock` so a cold cache
+under load fetches once. An unknown `kid` forces a refetch, which is how a key rotation recovers
+without waiting out the TTL. **Not `jwt.PyJWKClient`** — it fetches with blocking `urllib`, which
+inside an async request stalls the entire event loop rather than just that caller.
+
+Three status codes worth keeping straight, all in `test_security.py`: **401** for a bad, expired or
+unknown-key token; **500** when `SUPABASE_JWT_SECRET` is unset and there is no project either — a
+config error, not an auth failure; and **503** when the JWKS endpoint is unreachable, because the
+caller's token may be perfectly good and answering 401 would send them off to log in again over an
+outage that has nothing to do with them.
 
 ### Config
 
