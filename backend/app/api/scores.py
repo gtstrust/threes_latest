@@ -1,10 +1,11 @@
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 
 from app.core.deps import (
     CurrentUserDep,
     ParticipantServiceDep,
+    RealtimeNotifierDep,
     RoundServiceDep,
     ScoreEntryServiceDep,
     require_can_view,
@@ -52,10 +53,12 @@ async def submit_hole_scores(
     group_id: UUID,
     hole_id: UUID,
     payload: HoleScoreSubmit,
+    background: BackgroundTasks,
     current_user: CurrentUserDep,
     rounds: RoundServiceDep,
     participants: ParticipantServiceDep,
     scores: ScoreEntryServiceDep,
+    realtime: RealtimeNotifierDep,
 ) -> HoleResultRead:
     """Enter the group's strokes for one hole, and get back who won it.
 
@@ -86,6 +89,16 @@ async def submit_hole_scores(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
 
+    # Scheduled, not awaited, and deliberately so: `get_db` commits when its
+    # dependency finalises, which since FastAPI 0.106 happens *before* background
+    # tasks run. Awaiting here instead would broadcast inside the transaction, and
+    # a client quick enough to refetch would read a board without this hole on it.
+    # tests/test_realtime.py pins that ordering so an upgrade can't quietly undo it.
+    background.add_task(
+        realtime.leaderboard_changed,
+        tournament_id=tournament.id,
+        round_id=round_.id,
+    )
     return _to_read(scored)
 
 

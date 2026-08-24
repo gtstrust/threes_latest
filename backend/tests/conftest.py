@@ -1,20 +1,24 @@
 import asyncio
 import os
 import uuid
+from dataclasses import dataclass
 from collections.abc import AsyncGenerator
 
 import jwt
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text
+from sqlalchemy import func, select, text
 from sqlalchemy.engine.url import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
 from app.core.db import get_db
+from app.core.deps import get_realtime_notifier
 from app.main import app
 from app.models.base import Base
+from app.models.score import HoleScore
+from app.services.realtime import NullNotifier
 
 TEST_JWT_SECRET = "dev-local-only-secret-change-me!"
 
@@ -107,6 +111,14 @@ async def client(engine, monkeypatch) -> AsyncGenerator[AsyncClient, None]:
                 raise
 
     app.dependency_overrides[get_db] = override_get_db
+
+    # Realtime is off for every test unless one explicitly asks for the recorder.
+    # Without this the notifier is built from the real .env, so a developer with a
+    # Supabase project configured would have the suite broadcasting at it — and
+    # the shared httpx client, created in one test's event loop and reused in the
+    # next, fails with "Event loop is closed" the moment it does.
+    app.dependency_overrides[get_realtime_notifier] = lambda: NullNotifier()
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
@@ -123,3 +135,55 @@ def make_token():
         )
 
     return _make_token
+
+
+@dataclass
+class Signal:
+    """One realtime broadcast the app asked for, and what was visible when it ran."""
+
+    tournament_id: str
+    round_id: str
+    # Rows a *separate* connection could see at the moment the signal fired. The
+    # point of recording it: a signal sent before the request's transaction
+    # committed would see fewer rows than the one that triggered it.
+    committed_scores: int
+
+
+class RecordingNotifier:
+    """Stands in for the Supabase notifier and remembers what it was asked to send.
+
+    Opens its own session rather than sharing the request's, because the question
+    it exists to answer is what *another* connection can see — which is exactly
+    what a subscribed client refetching would see.
+    """
+
+    def __init__(self, engine) -> None:
+        self._factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+        self.signals: list[Signal] = []
+
+    async def leaderboard_changed(self, *, tournament_id, round_id) -> None:
+        async with self._factory() as session:
+            visible = await session.scalar(select(func.count()).select_from(HoleScore))
+        self.signals.append(
+            Signal(
+                tournament_id=str(tournament_id),
+                round_id=str(round_id),
+                committed_scores=visible or 0,
+            )
+        )
+
+
+@pytest_asyncio.fixture
+async def notifier(client, engine) -> RecordingNotifier:
+    """Swap the realtime notifier for one that records instead of sending.
+
+    Depends on `client` so it is installed after that fixture's NullNotifier
+    default, rather than racing it.
+    """
+    recorder = RecordingNotifier(engine)
+
+    async def override_get_realtime_notifier() -> RecordingNotifier:
+        return recorder
+
+    app.dependency_overrides[get_realtime_notifier] = override_get_realtime_notifier
+    return recorder

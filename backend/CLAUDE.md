@@ -91,7 +91,7 @@ service that coordinates several repositories.
 Supabase Auth issues JWTs (magic link) directly to the client; **this API never sees a password
 and does not proxy login**. Every protected route depends on `CurrentUserDep`
 (`app/core/deps.py`), which verifies the bearer token itself via `decode_supabase_jwt`
-(`app/core/security.py`) — HS256, shared-secret (`SUPABASE_JWT_SECRET`), no DB lookup. Data
+(`app/core/security.py`) — no DB lookup. Data
 access uses SQLAlchemy/asyncpg against Supabase's Postgres directly, **not** the `supabase-py`
 client — the JWT secret is the only piece of Supabase's SDK surface this backend depends on.
 
@@ -99,8 +99,34 @@ client — the JWT secret is the only piece of Supabase's SDK surface this backe
 imply a `players` row exists — `id` mirrors `auth.users.id` but the row is created lazily.
 `POST /players` is the idempotent "ensure my profile exists" call; the frontend must call it once
 right after login before any other `/players` endpoint, or `GET /players/me` / `PATCH
-/players/me` will 404. `decode_supabase_jwt` returns 500 (not 401) when `SUPABASE_JWT_SECRET` is
-unset — that's a config error, not an auth failure — see `test_security.py` for the distinction.
+/players/me` will 404.
+
+**Two verification paths, chosen by the token itself.** A real project signs with **ES256** and
+publishes the public key at its JWKS endpoint, so a browser's magic-link token is verified against
+that. But `tests/conftest.py` and `scripts/demo_tournament.py` sign their own **HS256** tokens
+against `SUPABASE_JWT_SECRET`, because Supabase issues tokens straight to clients and there is no
+login endpoint here to call. An asymmetric token carries a `kid` naming its signing key and a
+shared-secret one does not, which is what `decode_supabase_jwt` branches on. Neither path is
+legacy — deleting the HS256 one takes the test suite and the demo script with it.
+
+**This project is ES256-only.** Verified by minting a real token through the Auth admin API: the
+header is `{"alg": "ES256", "kid": "505bee7a-…"}`, and the legacy HS256 secret cannot verify it
+(`InvalidAlgorithmError` — it is not an HS256 token at all). So `SUPABASE_JWT_SECRET` here is **not**
+a Supabase value and must not be set to one: it is a locally-generated random string, used only by
+the tests and the demo script. Keeping a production credential out of the HS256 branch means that
+even if it leaks, it cannot mint a token this server accepts — confirmed by feeding the leaked
+legacy secret's forgery to `GET /auth/me` and getting a 401.
+
+The JWKS is cached by `kid` for `JWKS_CACHE_TTL_SECONDS`, behind an `asyncio.Lock` so a cold cache
+under load fetches once. An unknown `kid` forces a refetch, which is how a key rotation recovers
+without waiting out the TTL. **Not `jwt.PyJWKClient`** — it fetches with blocking `urllib`, which
+inside an async request stalls the entire event loop rather than just that caller.
+
+Three status codes worth keeping straight, all in `test_security.py`: **401** for a bad, expired or
+unknown-key token; **500** when `SUPABASE_JWT_SECRET` is unset and there is no project either — a
+config error, not an auth failure; and **503** when the JWKS endpoint is unreachable, because the
+caller's token may be perfectly good and answering 401 would send them off to log in again over an
+outage that has nothing to do with them.
 
 ### Config
 
@@ -192,6 +218,58 @@ a cycle — **don't add a models import there**.
 `"strokes"`). SQLAlchemy persists the *name* by default, so the column passes `values_callable` to
 store the lowercase value instead, keeping the database label, the API response and ADR-007's
 vocabulary identical.
+
+### The Supabase database, and why every table has RLS on
+
+`DATABASE_URL` can point at either the local Docker Postgres or the Supabase project; the app does
+not care, but two things about Supabase do not apply locally:
+
+- **`public` is served to the internet.** Supabase exposes it through PostgREST, and the key that
+  reaches it is the *publishable* one the frontend ships to every browser. A table created by
+  Alembic has RLS **off** and inherits grants for `anon`/`authenticated`, so without intervention
+  all eleven tables are readable and writable by anyone who reads the site's JavaScript. Migration
+  `20260824_0006` enables RLS on every table and defines **no policies**: PostgREST matches nothing
+  and sees nothing, while the app connects as the tables' owner and bypasses RLS untouched.
+  This is not the RLS ADR-010 rejected — that was a *policy* restating `require_can_view` in SQL.
+  A blanket deny encodes no rule, so there is nothing to drift.
+- **Alembic's own table was the gap.** `alembic_version` is created by Alembic, not by our models,
+  so `0006` missed it — and `anon` could not merely read it but **UPDATE** it, which corrupts every
+  future migration while touching no tournament data. `20260824_0007` revokes the grants outright
+  (RLS restricts rows; here the wanted answer is no access at all) and enables RLS as a backstop.
+  Both statements are guarded by a `pg_roles` check so the migration still runs on a plain Postgres
+  that has no `anon` role.
+
+**The direct connection host is IPv6-only.** `db.<ref>.supabase.co` publishes no A record, so any
+network without IPv6 must use the pooler string from the dashboard instead. CI is the obvious place
+this bites.
+
+**Do not point `scripts/demo_tournament.py` at a server wired to Supabase.** It writes a full
+tournament and there is no DELETE for a tournament or a course, so the data stays. The test suite is
+safe by construction: `conftest.py` refuses any non-local `TEST_DATABASE_URL`.
+
+### Realtime — the one outbound call
+
+`services/realtime.py` is the only place this backend talks *out* to a third party. It sends a
+contentless "the leaderboard moved" broadcast; ADR-010 in `../CLAUDE.md` has the reasoning, and
+three things about it are easy to break:
+
+- **It is scheduled, not awaited.** `app/api/scores.py` uses FastAPI `BackgroundTasks`, because
+  `get_db` commits in its dependency exit code and FastAPI runs that *before* background tasks.
+  Awaiting the broadcast in the route or the service would send it mid-transaction, and a client
+  fast enough to act would refetch a board missing the hole that triggered it.
+  `test_the_signal_fires_only_after_the_score_is_visible` pins the ordering by counting rows on a
+  separate connection — it fails with `0 == 3` if the call is moved inline.
+- **It is off unless Supabase is really configured.** `build_notifier()` returns `NullNotifier`
+  when `SUPABASE_URL`/`SUPABASE_KEY` are unset *or still hold the `.env.example` placeholders*.
+  The placeholder check is not cosmetic: without it, `cp .env.example .env` has the app POSTing to
+  `your-project.supabase.co` after every hole.
+- **The test suite must never emit.** `conftest.py`'s `client` fixture installs `NullNotifier` for
+  every test; the `notifier` fixture swaps in a recorder for the ones that assert on signals.
+  Without that default the notifier is built from your real `.env`, and the shared `httpx` client —
+  created in one test's event loop, reused in the next — dies with "Event loop is closed".
+
+The payload is `{"tournament_id", "round_id"}` and must stay that way. Adding scores to it would
+route data around FastAPI and re-open the authorization question ADR-010 exists to close.
 
 ### Domain errors and how routes map them
 
