@@ -13,6 +13,7 @@ from app.services.course import CourseService
 from app.services.leaderboard import LeaderboardService
 from app.services.participant import ParticipantService
 from app.services.player import PlayerService
+from app.services.realtime import RealtimeNotifier, build_notifier
 from app.services.round import RoundService
 from app.services.score_entry import ScoreEntryService
 from app.services.tournament import TournamentService
@@ -68,6 +69,16 @@ async def get_leaderboard_service(
     return LeaderboardService(session)
 
 
+async def get_realtime_notifier() -> RealtimeNotifier:
+    """The Realtime signal sender — a no-op unless Supabase is configured.
+
+    A dependency rather than a module-level singleton so tests can swap it through
+    `app.dependency_overrides`, exactly as they already do for `get_db`. It takes
+    no session: the signal carries no data (ADR-010), so there is nothing to read.
+    """
+    return build_notifier()
+
+
 CurrentUserDep = Annotated[CurrentUser, Depends(get_current_user)]
 PlayerServiceDep = Annotated[PlayerService, Depends(get_player_service)]
 TournamentServiceDep = Annotated[TournamentService, Depends(get_tournament_service)]
@@ -76,6 +87,7 @@ ParticipantServiceDep = Annotated[ParticipantService, Depends(get_participant_se
 RoundServiceDep = Annotated[RoundService, Depends(get_round_service)]
 ScoreEntryServiceDep = Annotated[ScoreEntryService, Depends(get_score_entry_service)]
 LeaderboardServiceDep = Annotated[LeaderboardService, Depends(get_leaderboard_service)]
+RealtimeNotifierDep = Annotated[RealtimeNotifier, Depends(get_realtime_notifier)]
 
 
 def require_course_owner(course: Course, current_user: CurrentUser) -> None:

@@ -193,6 +193,30 @@ a cycle — **don't add a models import there**.
 store the lowercase value instead, keeping the database label, the API response and ADR-007's
 vocabulary identical.
 
+### Realtime — the one outbound call
+
+`services/realtime.py` is the only place this backend talks *out* to a third party. It sends a
+contentless "the leaderboard moved" broadcast; ADR-010 in `../CLAUDE.md` has the reasoning, and
+three things about it are easy to break:
+
+- **It is scheduled, not awaited.** `app/api/scores.py` uses FastAPI `BackgroundTasks`, because
+  `get_db` commits in its dependency exit code and FastAPI runs that *before* background tasks.
+  Awaiting the broadcast in the route or the service would send it mid-transaction, and a client
+  fast enough to act would refetch a board missing the hole that triggered it.
+  `test_the_signal_fires_only_after_the_score_is_visible` pins the ordering by counting rows on a
+  separate connection — it fails with `0 == 3` if the call is moved inline.
+- **It is off unless Supabase is really configured.** `build_notifier()` returns `NullNotifier`
+  when `SUPABASE_URL`/`SUPABASE_KEY` are unset *or still hold the `.env.example` placeholders*.
+  The placeholder check is not cosmetic: without it, `cp .env.example .env` has the app POSTing to
+  `your-project.supabase.co` after every hole.
+- **The test suite must never emit.** `conftest.py`'s `client` fixture installs `NullNotifier` for
+  every test; the `notifier` fixture swaps in a recorder for the ones that assert on signals.
+  Without that default the notifier is built from your real `.env`, and the shared `httpx` client —
+  created in one test's event loop, reused in the next — dies with "Event loop is closed".
+
+The payload is `{"tournament_id", "round_id"}` and must stay that way. Adding scores to it would
+route data around FastAPI and re-open the authorization question ADR-010 exists to close.
+
 ### Domain errors and how routes map them
 
 Each service defines its own exception hierarchy rooted at a `*Error` base

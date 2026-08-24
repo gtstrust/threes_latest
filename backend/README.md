@@ -180,6 +180,28 @@ It writes to whatever database the server is pointed at, normally `threes_dev`, 
 data behind** — the API has no DELETE for a tournament or a course. Each run creates its own players
 and suffixes its course names, so runs accumulate rather than collide.
 
+## Realtime
+
+Scoring a hole broadcasts a "the leaderboard moved" signal on the Supabase Realtime topic
+`tournament:{id}`. It carries **no scores** — just `{"tournament_id", "round_id"}` — so a client
+answers it by refetching `GET /tournaments/{id}/leaderboard` through this API, where the existing
+authorization applies. See ADR-010 in [`../CLAUDE.md`](../CLAUDE.md).
+
+**It is off by default.** Broadcasting starts only once `SUPABASE_URL` and `SUPABASE_KEY` hold real
+values; with the `.env.example` placeholders it is a no-op, and a failed broadcast never fails a
+score submission.
+
+To watch it without a Supabase project, point the app at any HTTP server that logs POSTs:
+
+```bash
+SUPABASE_URL=http://localhost:9999 SUPABASE_KEY=stub-key \
+  uvicorn app.main:app --port 8000
+python scripts/demo_tournament.py      # a full run sends 17 broadcasts
+```
+
+Seventeen, not twelve: twelve holes plus the five tie-break re-submits, each of which changes who
+won a hole and so moves the board again.
+
 ## Linting & Type Checking
 
 ```bash
@@ -251,7 +273,7 @@ request/response schemas are at http://localhost:8000/docs.
 | `GET` | `/rounds/{id}` | The draw: every group with its members and loop |
 | `POST` | `/rounds/{id}/complete` | Finish the round in progress (organiser) |
 | `GET` | `/groups/{id}` | One group, its members and its loop |
-| `POST` | `/groups/{id}/holes/{hole_id}/scores` | Enter the group's strokes for a hole |
+| `POST` | `/groups/{id}/holes/{hole_id}/scores` | Enter the group's strokes for a hole (also broadcasts a refetch signal) |
 | `GET` | `/groups/{id}/scores` | The group's card so far |
 | `GET` | `/tournaments/{id}/leaderboard` | Cumulative standings across every round |
 | `GET` | `/rounds/{id}/leaderboard` | Standings for one round |

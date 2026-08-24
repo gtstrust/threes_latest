@@ -1,5 +1,20 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# The literal values shipped in `.env.example`. They describe the shape of a
+# setting rather than name a place, so a config still carrying them is a config
+# with no Supabase project behind it. Without this, a fresh `cp .env.example .env`
+# would have the app fetching keys from — and broadcasting at — a domain that
+# isn't ours. Same idea as `_LOCAL_DB_HOSTS` in tests/conftest.py: name the known
+# literals rather than guess at a pattern.
+PLACEHOLDER_SETTINGS = frozenset(
+    {"https://your-project.supabase.co", "your-service-role-key", "your-jwt-secret"}
+)
+
+
+def is_configured(value: str | None) -> bool:
+    """True when a setting holds a real value rather than nothing or a placeholder."""
+    return bool(value) and value not in PLACEHOLDER_SETTINGS
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

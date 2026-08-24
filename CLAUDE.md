@@ -24,9 +24,13 @@ Score entry landed as `hole_scores` (raw strokes + the points each earned) and `
 `rank_leaderboard`. Two endpoints: `GET /tournaments/{id}/leaderboard` (cumulative) and
 `GET /rounds/{id}/leaderboard` (one round).
 
-Not built: **Supabase Realtime** (`ROADMAP.md` M9) and the whole of `frontend/`. Realtime is only
-a signal to refetch the endpoints above — ADR-001 keeps the ranking server-side — so it is purely
-additive and waits on there being a client to subscribe with.
+**Supabase Realtime** (`ROADMAP.md` M9) is done and verified against the real project: scoring a
+hole broadcasts a contentless "the board moved" ping on `tournament:{id}` — ADR-010 — which a
+subscribed client answers by refetching. It is off unless a real Supabase project is configured, so
+local runs and the test suite are unaffected, and it needs a **secret** key (`sb_secret_…`); the
+broadcast endpoint rejects a publishable one.
+
+**The backend is complete for Phase 1.** Not built: the whole of `frontend/`.
 
 See [`backend/CLAUDE.md`](./backend/CLAUDE.md) for backend-specific commands, the auth/JWT model,
 and implementation gotchas (e.g. new models must be registered in `app/models/__init__.py` or
@@ -234,6 +238,43 @@ The split is along the line between **fact and judgement**. Strokes are reported
 
 **Rejected:** storing only strokes and calling `score_hole` on every read. It is simpler and cannot drift, but it discards `decided_by` — the record of *why* a hole was awarded — and makes the leaderboard recompute the entire field on every poll, which is exactly the read path M8 needs to be cheap.
 
+### ADR-010: Realtime is a signal, not a feed — Broadcast, not Postgres Changes
+Supabase Realtime tells clients the leaderboard moved. It **carries no scores**. The message is
+`{"tournament_id": ..., "round_id": ...}` on topic `tournament:{id}`, and the client answers it by
+refetching `GET /tournaments/{id}/leaderboard` — through FastAPI, where `require_can_view` already
+decides who may see what.
+
+**Broadcast is used rather than Postgres Changes**, which is what an earlier draft of the roadmap
+assumed. Postgres Changes streams the `hole_scores` row itself and gates delivery on **RLS**: a
+subscriber receives a change only if a SELECT policy admits their JWT. Turning it on would mean a
+policy walking `hole_scores → groups → rounds → tournaments → tournament_participants` — which is
+`require_can_view` written a second time, in SQL, covered by no Python test and free to drift from
+the Python copy. ADR-009 rejected a second copy of an *enum label* for the same reason; a second
+copy of an authorization rule is worse.
+
+Broadcast also keeps ADR-001 literally true instead of nearly true. Nothing but Auth and a
+contentless ping reaches the client outside FastAPI, so there is no second read path to secure, and
+no data table carries an RLS policy.
+
+**The signal is sent after the commit, not inside it.** `get_db` commits when its dependency
+finalises, which FastAPI runs *before* background tasks — so `POST /groups/{id}/holes/{hid}/scores`
+schedules the broadcast with `BackgroundTasks` rather than awaiting it. Awaiting it would send the
+ping mid-transaction, and a client quick enough to act would refetch a board that does not yet
+include the hole that caused the refetch. That ordering is a property of the framework rather than
+of this code, so `tests/test_realtime.py` pins it.
+
+**A failed broadcast is swallowed.** By then the hole is committed; a player who has just holed a
+putt should not see an error because Supabase was slow. The cost is that clients find out on their
+next poll instead of immediately.
+
+**Public channels, for now.** A topic is keyed by tournament UUID and the payload says nothing, so
+an eavesdropper who guessed one would learn only that somebody scored. Private channels (RLS on
+`realtime.messages`) are Phase 2, and are the reason the payload is worth keeping empty.
+
+**Only score entry signals.** A new draw or a completed round also change what a client should show,
+but a client learns those on its own refresh; adding `round_drawn` / `round_complete` is two more
+call sites and a second event type, and waits until the frontend shows it is needed.
+
 ## Coding Conventions
 
 ### Python (Backend)
@@ -354,7 +395,9 @@ API_BASE_URL=http://localhost:8000
 1. The MVP launches in Australia targeting corporate golf days.
 2. "Threes" refers to the 3-hole competition format, not a card game.
 3. The scoring engine is the most critical business logic — it must be exhaustively tested.
-4. Real-time leaderboards use Supabase Realtime (Postgres LISTEN/NOTIFY), not custom WebSockets.
+4. Real-time leaderboards use Supabase Realtime **Broadcast**, not custom WebSockets and not
+   Postgres Changes. The message carries no scores — it only tells a client to refetch the
+   leaderboard endpoint. See ADR-010 for why Postgres Changes was rejected.
 5. Magic link auth means no passwords are stored. Supabase Auth handles the entire flow.
 6. MVP is a **lean validation build**: web-only, no AI, no offline sync, no Fun Rounds — see `THREES_STRATEGY.md`. The MVP milestone is running one real corporate golf day, with the organiser paying the per-event fee.
 7. Phase 2 features (deferred): native iOS/Android apps, AI invitation/summary generation, offline-first sync, Fun Rounds, **handicaps / net scoring**, standalone longest-drive and closest-to-pin competitions (with their own prizes and leaderboards), social friends, gamification. Note that longest drive and closest to pin are *captured* in MVP because ADR-007 needs them to break tied holes — what's deferred is treating them as competitions in their own right.
