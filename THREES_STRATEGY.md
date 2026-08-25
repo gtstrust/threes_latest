@@ -45,13 +45,16 @@
 
 **What `CLAUDE.md` already commits to** (ADR-006):
 
-- Flutter targets web only — no iOS/Android builds, no app store submission.
+- The app targets web only — no iOS/Android builds, no app store submission.
 - This removes Fastlane, TestFlight, and Play Store review latency from the pilot's critical path.
 - Native builds are Phase 2, once the pilot validates the format and the fee.
+- The stack is React + Vite, shipped as an installable PWA (ADR-006, as amended). A home-screen
+  install gives most of what a player wants from an app without a store at all.
 
 **To be written:**
 
-- Whether players will accept a browser-based experience on-course.
+- Whether players will accept a browser-based experience on-course. The pilot should measure
+  this directly: how many install to the home screen, and how many bounce at the login screen.
 
 ## 4. Target market — Australian corporate golf days
 

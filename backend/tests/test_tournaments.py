@@ -263,3 +263,114 @@ async def test_format_defaults_to_round_robin_when_omitted(client, make_token):
     tournament = await _create_tournament(client, headers)
 
     assert tournament["format"] == TournamentFormat.ROUND_ROBIN.value
+
+
+# --- Finding the tournaments you play in ------------------------------------
+#
+# `GET /tournaments` lists what you organise. Without the endpoint below a player
+# can read an event by id — `require_can_view` admits the field — but has no way
+# to learn the id, so losing the invitation link strands them.
+
+
+async def _open_for_registration(client: AsyncClient, organiser) -> str:
+    tournament = await _create_tournament(client, organiser)
+    await client.post(
+        f"/tournaments/{tournament['id']}/status",
+        headers=organiser,
+        json={"status": TournamentStatus.REGISTRATION_OPEN.value},
+    )
+    return str(tournament["id"])
+
+
+@pytest.mark.asyncio
+async def test_a_player_sees_the_tournaments_they_joined(client, make_token):
+    organiser = await _organiser(client, make_token)
+    player = await _organiser(client, make_token, email="player@example.com")
+    tournament_id = await _open_for_registration(client, organiser)
+    await client.post(f"/tournaments/{tournament_id}/participants", headers=player, json={})
+
+    response = await client.get("/players/me/tournaments", headers=player)
+
+    assert response.status_code == 200, response.text
+    assert [t["id"] for t in response.json()] == [tournament_id]
+
+
+@pytest.mark.asyncio
+async def test_a_player_does_not_see_tournaments_they_are_not_in(client, make_token):
+    organiser = await _organiser(client, make_token)
+    player = await _organiser(client, make_token, email="player@example.com")
+    joined = await _open_for_registration(client, organiser)
+    await _open_for_registration(client, organiser)  # somebody else's event
+    await client.post(f"/tournaments/{joined}/participants", headers=player, json={})
+
+    response = await client.get("/players/me/tournaments", headers=player)
+
+    assert [t["id"] for t in response.json()] == [joined]
+
+
+@pytest.mark.asyncio
+async def test_organising_is_not_playing(client, make_token):
+    """The two lists answer different questions and must not bleed into each other.
+
+    An organiser who is not in the field is running the day, not playing it —
+    their event belongs on `GET /tournaments`, not here.
+    """
+    organiser = await _organiser(client, make_token)
+    await _open_for_registration(client, organiser)
+
+    playing = await client.get("/players/me/tournaments", headers=organiser)
+    organising = await client.get("/tournaments", headers=organiser)
+
+    assert playing.json() == []
+    assert len(organising.json()) == 1
+
+
+@pytest.mark.asyncio
+async def test_an_organiser_who_also_plays_sees_it_in_both(client, make_token):
+    """Which is the normal case for a corporate day — the organiser plays too."""
+    organiser = await _organiser(client, make_token)
+    tournament_id = await _open_for_registration(client, organiser)
+    await client.post(f"/tournaments/{tournament_id}/participants", headers=organiser, json={})
+
+    playing = await client.get("/players/me/tournaments", headers=organiser)
+    organising = await client.get("/tournaments", headers=organiser)
+
+    assert [t["id"] for t in playing.json()] == [tournament_id]
+    assert [t["id"] for t in organising.json()] == [tournament_id]
+
+
+@pytest.mark.asyncio
+async def test_virtual_players_cannot_surface_in_anyone_s_list(client, make_token):
+    """A virtual player has `player_id IS NULL` and no account to call the API with.
+
+    The join matches on `player_id`, and NULL equals nothing — so a tournament
+    full of virtual players stays invisible to a real player who is not in it.
+    """
+    organiser = await _organiser(client, make_token)
+    outsider = await _organiser(client, make_token, email="outsider@example.com")
+    tournament_id = await _open_for_registration(client, organiser)
+    for name in ("Dave", "Baz"):
+        created = await client.post(
+            f"/tournaments/{tournament_id}/participants/virtual",
+            headers=organiser,
+            json={"display_name": name},
+        )
+        assert created.status_code == 201, created.text
+
+    response = await client.get("/players/me/tournaments", headers=outsider)
+
+    assert response.json() == []
+
+
+@pytest.mark.asyncio
+async def test_newest_first(client, make_token):
+    organiser = await _organiser(client, make_token)
+    player = await _organiser(client, make_token, email="player@example.com")
+    first = await _open_for_registration(client, organiser)
+    second = await _open_for_registration(client, organiser)
+    for tournament_id in (first, second):
+        await client.post(f"/tournaments/{tournament_id}/participants", headers=player, json={})
+
+    response = await client.get("/players/me/tournaments", headers=player)
+
+    assert [t["id"] for t in response.json()] == [second, first]

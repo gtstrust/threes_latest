@@ -72,12 +72,24 @@ scoring — kept ready for Phase 2 handicaps.
 
 ### Frontend
 
-Not started; `frontend/` does not exist yet. Flutter **web only** for MVP.
+**React + Vite (TypeScript)**, web only, shipped as an installable PWA. ADR-006 records why the
+stack changed from Flutter; web-only itself was never in question.
 
-- Magic-link auth + profile provisioning
-- Organiser: create tournament, manage registration, generate rounds
-- Player: score entry for own group, including entering scores for Virtual Players
-- Live leaderboard
+| # | Slice | Status |
+|---|-------|--------|
+| 1 | Shell, magic-link auth, profile provisioning, PWA install | ✅ Done |
+| 2 | Organiser: create a course and tournament, manage the field | ✅ Done |
+| 3 | Organiser: draw a round, complete it, finish the tournament | ✅ Done |
+| 4 | Player: see my group, enter scores, walk the ADR-007 tie-break | ✅ Done |
+| 5 | Live leaderboard, refetching on the ADR-010 signal | ✅ Done |
+
+**Not yet done: anyone has actually logged in.** The magic-link flow has never run
+against the real project, because it needs the `sb_publishable_` key in `frontend/.env`.
+Everything either side of it is tested, but the first click-through is still ahead.
+
+Slice 4 is the one to get right: score entry is a conversation, not a form. Strokes go in, and if
+they tie the API answers with `tied_participants` — the app then asks *only those players* who was
+closest to the pin, and re-posts the same hole with the answer.
 
 ### Explicitly out of scope for MVP
 

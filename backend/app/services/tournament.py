@@ -98,6 +98,10 @@ class TournamentService:
     async def list_for_organiser(self, organiser_id: UUID) -> Sequence[Tournament]:
         return await self._repository.list_for_organiser(organiser_id)
 
+    async def list_for_player(self, player_id: UUID) -> Sequence[Tournament]:
+        """Tournaments the player is competing in, which they may not organise."""
+        return await self._repository.list_for_player(player_id)
+
     async def update_details(self, tournament: Tournament, updates: TournamentUpdate) -> Tournament:
         return await self._repository.update(tournament, updates)
 

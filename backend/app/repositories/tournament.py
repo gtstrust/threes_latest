@@ -4,6 +4,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.participant import TournamentParticipant
 from app.models.tournament import Tournament, TournamentStatus
 from app.schemas.tournament import TournamentCreate, TournamentUpdate
 
@@ -19,6 +20,25 @@ class TournamentRepository:
         result = await self._session.execute(
             select(Tournament)
             .where(Tournament.organiser_id == organiser_id)
+            .order_by(Tournament.created_at.desc())
+        )
+        return result.scalars().all()
+
+    async def list_for_player(self, player_id: UUID) -> Sequence[Tournament]:
+        """Tournaments this player is in the field of, newest first.
+
+        A join rather than a second column: the field is the participants table,
+        and a tournament reached this way is one the caller may view even though
+        somebody else organises it.
+
+        Virtual players cannot match. Their `player_id` is NULL, and NULL never
+        equals anything — which is the same property that lets any number of them
+        share a tournament under `uq_participants_tournament_player`.
+        """
+        result = await self._session.execute(
+            select(Tournament)
+            .join(TournamentParticipant, TournamentParticipant.tournament_id == Tournament.id)
+            .where(TournamentParticipant.player_id == player_id)
             .order_by(Tournament.created_at.desc())
         )
         return result.scalars().all()

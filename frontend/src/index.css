@@ -1,0 +1,351 @@
+/*
+ * Written for one hand, outdoors, in sunlight.
+ *
+ * The constraints that shaped this: tap targets big enough for a thumb; high
+ * contrast because the screen is competing with the sun; system fonts because a
+ * webfont is another blocking download on 4G; and `dvh` units so the layout does
+ * not jump when mobile browser chrome slides away.
+ */
+
+:root {
+  --green: #1b5e20;
+  --green-dark: #143f17;
+  --ink: #121712;
+  --muted: #5b665c;
+  --surface: #ffffff;
+  --page: #f4f6f4;
+  --border: #d4dcd5;
+  --danger: #a4231f;
+
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color: var(--ink);
+  background: var(--page);
+  /* 17px: comfortably above the 16px below which iOS Safari zooms on focus. */
+  font-size: 17px;
+  line-height: 1.5;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+}
+
+main {
+  max-width: 34rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem calc(1.5rem + env(safe-area-inset-bottom));
+}
+
+main.centred {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+h1 {
+  font-size: 1.75rem;
+  margin: 0 0 0.25rem;
+  color: var(--green-dark);
+}
+
+p {
+  margin: 0 0 0.5rem;
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+label {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+input {
+  font: inherit;
+  padding: 0.85rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--surface);
+  min-height: 3rem;
+}
+
+input:focus-visible,
+button:focus-visible {
+  outline: 3px solid var(--green);
+  outline-offset: 2px;
+}
+
+button {
+  font: inherit;
+  font-weight: 600;
+  /* 3rem tall: a thumb target, not a mouse target. */
+  min-height: 3rem;
+  padding: 0.85rem 1.1rem;
+  border: 0;
+  border-radius: 0.6rem;
+  background: var(--green);
+  color: #fff;
+  cursor: pointer;
+}
+
+button:disabled {
+  background: var(--muted);
+  cursor: not-allowed;
+}
+
+[role='alert'] {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #eaf0ea;
+    --muted: #9aa79b;
+    --surface: #1a201b;
+    --page: #11150f;
+    --border: #333c34;
+    --green: #4c9a51;
+    --green-dark: #a5d6a7;
+    --danger: #ff8a80;
+  }
+}
+
+/* --- Layout pieces ------------------------------------------------------ */
+
+.page-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.back {
+  display: inline-block;
+  margin-bottom: 0.75rem;
+  color: var(--muted);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.9rem;
+  padding: 1rem;
+  margin: 1rem 0;
+}
+
+.card h2 {
+  font-size: 1.05rem;
+  margin: 0 0 0.6rem;
+  color: var(--green-dark);
+}
+
+.muted { color: var(--muted); }
+.small { font-size: 0.85rem; }
+.error { color: var(--danger); font-weight: 600; }
+.empty { font-style: italic; }
+
+/* --- Lists -------------------------------------------------------------- */
+
+.list {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+}
+
+.list li {
+  border-bottom: 1px solid var(--border);
+}
+
+.list li:last-child { border-bottom: 0; }
+
+.list a,
+.list.plain li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  /* Tall enough to hit with a thumb without aiming. */
+  min-height: 3rem;
+  padding: 0.6rem 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.list-name { font-weight: 600; }
+
+.badge {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0.2rem 0.5rem;
+  border-radius: 0.4rem;
+  background: var(--page);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* --- Buttons ------------------------------------------------------------ */
+
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 3rem;
+  padding: 0.85rem 1.1rem;
+  border-radius: 0.6rem;
+  background: var(--green);
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+button.ghost,
+.button-link.ghost {
+  background: transparent;
+  color: var(--green-dark);
+  border: 1px solid var(--border);
+}
+
+button.ghost.danger { color: var(--danger); }
+
+select {
+  font: inherit;
+  min-height: 3rem;
+  padding: 0.7rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--surface);
+  color: inherit;
+}
+
+/* --- The draw ----------------------------------------------------------- */
+
+.groups .group {
+  display: block;
+  padding: 0.75rem 0;
+}
+
+.group-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.group.mine {
+  border-left: 4px solid var(--green);
+  padding-left: 0.75rem;
+}
+
+/* --- Score entry -------------------------------------------------------- */
+
+.hole-tabs {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+}
+
+.tab {
+  min-width: 3rem;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--border);
+}
+
+.tab.current {
+  background: var(--green);
+  color: #fff;
+  border-color: var(--green);
+}
+
+.stroke-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.stroke-name {
+  font-weight: 600;
+  /* Long names wrap rather than shove the stepper off-screen. */
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.stepper button {
+  /* Square and large: this is the control used most, and it is used outdoors. */
+  width: 3.25rem;
+  min-height: 3.25rem;
+  font-size: 1.5rem;
+  padding: 0;
+}
+
+.stepper output {
+  min-width: 2.5rem;
+  text-align: center;
+  font-size: 1.4rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.choices button { flex: 1 1 8rem; }
+
+/* --- Leaderboard -------------------------------------------------------- */
+
+.board {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.board th,
+.board td {
+  text-align: left;
+  padding: 0.55rem 0.35rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.board th {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+}
+
+/* Points and strokes line up when they are tabular, which matters on a board
+   people scan rather than read. */
+.board td:nth-child(1),
+.board td:nth-child(3),
+.board td:nth-child(4),
+.board td:nth-child(5) {
+  font-variant-numeric: tabular-nums;
+}
