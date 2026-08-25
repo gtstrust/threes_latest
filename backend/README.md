@@ -261,6 +261,7 @@ request/response schemas are at http://localhost:8000/docs.
 | `GET` | `/auth/me` | Verify a token and echo its claims |
 | `POST` | `/players` | Idempotently provision the caller's profile |
 | `GET` `PATCH` | `/players/me` | Read or update your own profile |
+| `GET` | `/players/me/tournaments` | Tournaments you're *playing in* (vs `/tournaments`, which you organise) |
 | `GET` | `/players/{id}` | Read a profile |
 | `POST` `GET` | `/courses` | Create or search courses (shared reference data) |
 | `GET` `PATCH` | `/courses/{id}` | Read a course with its holes, or rename it |
