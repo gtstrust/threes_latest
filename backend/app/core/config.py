@@ -29,7 +29,11 @@ class Settings(BaseSettings):
     # with a locally-installed Postgres. Matches .env.example.
     database_url: str = "postgresql+asyncpg://threes:threes@localhost:5433/threes_dev"
 
-    cors_origins: str = "http://localhost:3000,http://localhost:8080"
+    # 5173 is Vite's dev server, which is where `frontend/` runs (ADR-006). The
+    # browser blocks the app's very first request without it, and the failure
+    # reads as a network error rather than as a CORS one, so it is worth having
+    # in the default rather than in everyone's .env.
+    cors_origins: str = "http://localhost:5173,http://localhost:3000,http://localhost:8080"
 
     @property
     def cors_origin_list(self) -> list[str]:

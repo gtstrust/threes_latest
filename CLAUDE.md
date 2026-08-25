@@ -74,22 +74,22 @@ threes/
 │   ├── pyproject.toml
 │   ├── Dockerfile
 │   └── alembic.ini
-├── frontend/                 # Flutter mobile/web app
-│   ├── lib/
-│   │   ├── features/         # Feature-based folder structure
+├── frontend/                 # React + Vite web app (PWA)
+│   ├── src/
+│   │   ├── features/         # Feature-first, mirroring the backend's slices
 │   │   │   ├── auth/
 │   │   │   ├── tournaments/
+│   │   │   ├── rounds/
 │   │   │   ├── scoring/
-│   │   │   ├── leaderboard/
-│   │   │   ├── fun_rounds/
-│   │   │   └── profile/
-│   │   ├── core/             # Shared utilities, theme, routing
-│   │   ├── models/           # Data models / DTOs
-│   │   ├── providers/        # Riverpod providers
-│   │   └── main.dart
-│   ├── test/
-│   ├── pubspec.yaml
-│   └── analysis_options.yaml
+│   │   │   └── leaderboard/
+│   │   ├── lib/              # env, api client, supabase, realtime, types
+│   │   ├── test/
+│   │   └── App.tsx
+│   ├── public/               # PWA icons
+│   ├── index.html
+│   ├── package.json
+│   ├── vite.config.ts
+│   └── vitest.config.ts
 ├── docs/                     # Project documentation
 │   ├── ARCHITECTURE.md
 │   ├── API.md
@@ -138,32 +138,25 @@ alembic revision --autogenerate -m "description"  # Create migration
 alembic downgrade -1          # Rollback last migration
 ```
 
-### Frontend (Flutter)
+### Frontend (React + Vite)
 
 ```bash
-# Setup
 cd frontend
-flutter pub get
+npm install
+cp .env.example .env          # needs the sb_publishable_ key; see below
 
-# Run (development)
-flutter run                   # Connected device
-flutter run -d chrome         # Web
-flutter run -d ios             # iOS simulator
-flutter run -d android         # Android emulator
+npm run dev                   # http://localhost:5173
+npm run build                 # static bundle in dist/
+npm run preview               # serve the built bundle
 
-# Tests
-flutter test
-flutter test --coverage
-
-# Code quality
-dart analyze
-dart format .
-
-# Build
-flutter build apk             # Android
-flutter build ios              # iOS
-flutter build web              # Web
+npm test                      # vitest, once
+npm run test:watch
+npm run typecheck             # tsc -b
+npm run lint                  # oxlint
 ```
+
+The dev server's origin (`localhost:5173`) has to be in the backend's
+`CORS_ORIGINS`, which it is by default.
 
 ### Docker (Full Stack)
 
@@ -176,7 +169,7 @@ docker-compose logs -f backend # Follow backend logs
 ## Architecture Decisions
 
 ### ADR-001: All data flows through FastAPI
-The Flutter client does NOT query Supabase directly for data (except Auth and Realtime subscriptions). All CRUD operations go through FastAPI endpoints. This ensures consistent business logic, validation, and audit logging.
+The client does NOT query Supabase directly for data (except Auth and Realtime subscriptions). All CRUD operations go through FastAPI endpoints. This ensures consistent business logic, validation, and audit logging.
 
 ### ADR-002: Scoring engine is server-side only
 All points calculation and tie-breaking happens on the backend. The client submits raw strokes; the server returns calculated results. This prevents score manipulation and ensures consistency.
@@ -192,10 +185,20 @@ Three is the format, so the draw makes groups of 3 wherever it can. The other tw
 Nothing in the scoring engine changed with it: `score_hole` takes a mapping of any size, and ADR-007's cascade is defined over "the players tied on strokes" without reference to how many there are. The cost is that a fourball has a slightly lower chance of an outright stroke winner than a three, so tie-breaks are asked marginally more often.
 
 ### ADR-005: Offline-resilient score entry — Phase 2
-Deferred from MVP (see `THREES_STRATEGY.md` §2). MVP score submission is online-only with retry-on-failure and a connectivity warning; no local persistence. Phase 2 revisits this only if pilot feedback shows on-course connectivity is actually a problem: Flutter would store pending score submissions in local storage (Hive), sync when connectivity returns, show a "pending" indicator, and the server would resolve conflicts (last-write-wins with timestamp).
+Deferred from MVP (see `THREES_STRATEGY.md` §2). MVP score submission is online-only with retry-on-failure and a connectivity warning; no local persistence. Phase 2 revisits this only if pilot feedback shows on-course connectivity is actually a problem: pending submissions would be queued in IndexedDB, synced when connectivity returns, shown with a "pending" indicator, and the server would resolve conflicts (last-write-wins with timestamp). The service worker deliberately does **not** cache API responses today — a stale leaderboard served silently is worse than an honest error, because a player would trust a board that had stopped moving.
 
 ### ADR-006: Web-first for MVP
-The Flutter app targets web only for MVP — no iOS/Android builds, no app store submission. This removes Fastlane, TestFlight, and Play Store review latency from the pilot's critical path. Native builds are Phase 2, pursued once the pilot validates the format and the fee.
+The app targets web only for MVP — no iOS/Android builds, no app store submission. This removes Fastlane, TestFlight, and Play Store review latency from the pilot's critical path. Native builds are Phase 2, pursued once the pilot validates the format and the fee.
+
+**Amended: the stack is React + Vite, not Flutter.** Web-only was always the decision; what changed is what builds it. Three reasons, all specific to this app rather than general:
+
+- **Flutter's advantage was already deferred by this very ADR.** It earns its keep by giving web *and* real native from one codebase. Deciding native is Phase 2 and conditional on the pilot means paying Flutter web's costs now for a benefit deliberately not collected yet.
+- **Flutter web's weaknesses land on the critical path.** CanvasKit ships ~1.5–2MB before first paint and paints text to canvas — no find-in-page, weak accessibility, poor form autofill. The critical path here is a player opening a magic link on 4G, on a course, typing an email into a login field. Measured: the whole React app, including `supabase-js`, is **136 kB gzipped**.
+- **This project is on Supabase's newest auth surface** — ES256 via JWKS and `sb_publishable_` keys. `supabase-js` receives these first; `supabase_flutter` trails. That is the one part of the client which cannot route through FastAPI, so being on the well-trodden path there matters more than anywhere else.
+
+Native is kept open through the **PWA**, not through the framework: the app installs to a home screen, full-screen, with no store review. If the pilot shows store presence is genuinely wanted, Capacitor wraps the same bundle without a rewrite. That keeps this ADR's original bet intact — the pilot decides whether native is worth it, and nothing is paid for it beforehand.
+
+The cost, accepted: if Threes later wants genuinely native apps with native feel, Flutter or React Native means writing the UI a second time. That is a Phase 2 problem, and it is smaller than shipping a slow pilot.
 
 ### ADR-008: Play statuses are owned by the round endpoints
 `ROUND_IN_PROGRESS` and `ROUND_COMPLETE` cannot be set through `POST /tournaments/{id}/status`. Drawing a round and starting play are one action (`POST /tournaments/{id}/rounds`), as are finishing a round and ending it (`POST /rounds/{round_id}/complete`).
@@ -288,15 +291,16 @@ call sites and a second event type, and waits until the frontend shows it is nee
 - Docstrings on all public functions (Google style)
 - No raw SQL in route handlers — use SQLAlchemy ORM or repository methods
 
-### Dart (Frontend)
+### TypeScript (Frontend)
 
-- **Dart 3.x** / **Flutter 3.x**
-- Riverpod for state management (no setState in feature code)
-- Feature-first folder structure
-- `const` constructors wherever possible
-- Naming: `snake_case` for files, `camelCase` for variables/functions, `PascalCase` for classes
-- Use `freezed` for immutable data models
-- No business logic in widgets — delegate to providers/services
+- **TypeScript strict**, React 19, Vite
+- Feature-first folders under `src/features/`; shared plumbing in `src/lib/`
+- Naming: `kebab-case` or `PascalCase` for files matching their default export, `camelCase` for variables/functions, `PascalCase` for components and types
+- Server state lives in TanStack Query, not in `useState`. There is almost no client state — the realtime signal is a cache invalidation
+- **`supabase-js` is for auth and the realtime subscription only.** Never `.from(...)`: every byte of data comes through FastAPI (ADR-001), and the tables carry deny-all RLS so such a call returns nothing rather than failing loudly
+- Types in `src/lib/types.ts` mirror `backend/app/schemas/`, hand-written. If that file outgrows a screen, generate from `/openapi.json` rather than letting it drift
+- No business logic in components — the scoring cascade belongs in a tested module
+- Plain HTML form controls wherever possible: autofill, the email keyboard and password managers all work for free, and that is most of what makes the app usable one-handed outdoors
 
 ### General
 
@@ -324,10 +328,14 @@ CORS_ORIGINS=http://localhost:3000,http://localhost:8080
 
 ### Frontend (.env)
 
+Vite inlines `VITE_*` at build time, so everything here ships to the browser in a
+static asset. That is fine for these three — and is exactly why the **secret** key
+must never appear among them. `src/lib/env.ts` refuses to start if it finds one.
+
 ```
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_ANON_KEY=your-anon-key
-API_BASE_URL=http://localhost:8000
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your-key-here
+VITE_API_BASE_URL=http://localhost:8000
 ```
 
 ## Key Domain Concepts

@@ -1,0 +1,72 @@
+name: Frontend CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend-ci.yml"
+  pull_request:
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend-ci.yml"
+
+defaults:
+  run:
+    working-directory: frontend
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    env:
+      # Vite inlines VITE_* at build time, so a build needs *values* even though
+      # nothing here talks to Supabase. These are deliberately fake: CI must
+      # never hold a real key, and a build that only succeeds with production
+      # credentials is a build nobody can reproduce locally.
+      VITE_SUPABASE_URL: https://ci.example.supabase.co
+      VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder
+      VITE_API_BASE_URL: http://localhost:8000
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # `ci`, not `install`: fails on a lockfile that disagrees with
+      # package.json rather than quietly resolving to something newer.
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      # The reason this stack was chosen over Flutter web is first paint on
+      # mobile data (ADR-006). Printing the number every run makes a regression
+      # visible in the diff rather than six months later on a tee box.
+      - name: Report bundle size
+        run: |
+          echo "### Bundle" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          for f in dist/assets/*.js dist/assets/*.css; do
+            [ -e "$f" ] || continue
+            printf '%-40s %6s raw  %6s gzip\n' \
+              "$(basename "$f")" \
+              "$(du -h "$f" | cut -f1)" \
+              "$(gzip -c "$f" | wc -c | awk '{printf "%.0fK", $1/1024}')" \
+              >> "$GITHUB_STEP_SUMMARY"
+          done
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

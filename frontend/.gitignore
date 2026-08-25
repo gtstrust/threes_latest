@@ -1,0 +1,33 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Secrets. `*.local` above does not match a plain `.env`, and neither does it
+# match a hand-made copy — both have to be named. backend/.env.example was
+# committed with live credentials once already; the block is cheaper than the
+# rotation.
+.env
+.env.*
+!.env.example
+.env.backup-*

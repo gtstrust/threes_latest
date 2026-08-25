@@ -242,11 +242,13 @@ tests/
 ```
 
 Routes → services → repositories → database. Every router is implemented,
-there are no stub endpoints left, and every piece of the scoring engine is now
-wired to a route. What remains in Phase 1 is the Flutter frontend, plus
-Supabase Realtime (M9 in [`../ROADMAP.md`](../ROADMAP.md)) — which only pushes
-clients to refetch the leaderboard endpoints below, since ADR-001 keeps the
-ranking itself server-side.
+there are no stub endpoints left, and every piece of the scoring engine is
+wired to a route. Supabase Realtime (M9) is done too — it only pushes clients
+to refetch the leaderboard endpoints below, since ADR-001 keeps the ranking
+itself server-side.
+
+**The backend is complete for Phase 1.** What remains is the web frontend in
+[`../frontend/`](../frontend/) — React + Vite, shipped as a PWA (ADR-006).
 
 ## API surface
 
