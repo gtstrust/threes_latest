@@ -21,6 +21,7 @@ import {
   useStartFunRound,
 } from '../../lib/queries';
 import { ApiError } from '../../lib/api';
+import { InviteCard } from '../invite/InviteCard';
 import { useSession } from '../auth/session-context';
 import type { FunRoundDetail, Participant, RoundWithGroups, UUID } from '../../lib/types';
 
@@ -143,7 +144,10 @@ function Lobby({
 
   return (
     <>
-      <ShareCard funRoundId={detail.id} />
+      <InviteCard
+        code={detail.join_code}
+        blurb="Send them this link, or let them scan it. They sign in and they're in."
+      />
 
       <Card>
         <h2>Who&rsquo;s in</h2>
@@ -267,33 +271,6 @@ function MyGroup({
       <Link to={`/r/${funRoundId}/g/${mine.id}`} className="button-link primary">
         Enter scores
       </Link>
-    </Card>
-  );
-}
-
-function ShareCard({ funRoundId }: { funRoundId: UUID }) {
-  const [copied, setCopied] = useState(false);
-  const link = `${window.location.origin}/r/${funRoundId}`;
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(link);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setCopied(false);
-    }
-  }
-
-  return (
-    <Card>
-      <h2>Invite your mates</h2>
-      <p className="muted small">
-        Send them this link — they tap it, sign in, and they&rsquo;re in.
-      </p>
-      <button type="button" onClick={() => void copy()}>
-        {copied ? 'Copied ✓' : 'Copy join link'}
-      </button>
     </Card>
   );
 }

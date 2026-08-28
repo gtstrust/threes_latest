@@ -30,7 +30,9 @@ import {
   useSetStatus,
   useTournament,
 } from '../../lib/queries';
+import { ApiError } from '../../lib/api';
 import { useSession } from '../auth/session-context';
+import { InviteCard } from '../invite/InviteCard';
 import type { Participant, Round, Tournament, UUID } from '../../lib/types';
 import { parseHoles, readableStatus } from './format';
 import { GroupList } from '../rounds/GroupList';
@@ -67,6 +69,23 @@ export function TournamentPage({ tournamentId }: { tournamentId: UUID }) {
   const [holeText, setHoleText] = useState('');
 
   if (tournament.isPending) return <Loading what="Loading tournament" />;
+
+  // Reading a tournament is restricted to the organiser and the field, so a 403
+  // means someone arrived holding the app URL rather than a join link. Saying
+  // what to do about it beats showing them the guard's own sentence.
+  if (tournament.error instanceof ApiError && tournament.error.status === 403)
+    return (
+      <Page title="Tournament" back={{ to: '/', label: 'Tournaments' }}>
+        <Card>
+          <h2>You&rsquo;re not in this event</h2>
+          <p className="muted">
+            Ask the organiser for the join link — it looks like{' '}
+            <code>{window.location.origin}/join/THR-…</code> — or scan their QR code.
+          </p>
+        </Card>
+      </Page>
+    );
+
   if (tournament.error)
     return (
       <Page title="Tournament" back={{ to: '/', label: 'Tournaments' }}>
@@ -86,11 +105,21 @@ export function TournamentPage({ tournamentId }: { tournamentId: UUID }) {
         {course.data && <span className="muted"> · {course.data.name}</span>}
       </p>
 
-      {(status === 'ROUND_IN_PROGRESS' || status === 'ROUND_COMPLETE' ||
+      {(status === 'ROUND_IN_PROGRESS' ||
+        status === 'ROUND_COMPLETE' ||
         status === 'TOURNAMENT_COMPLETE') && (
         <Link to={`/t/${tournamentId}/leaderboard`} className="button-link">
           Leaderboard
         </Link>
+      )}
+
+      {/* --- Handing the event out ---------------------------------------- */}
+      {isOrganiser && event.join_code && FIELD_IS_EDITABLE.includes(status) && (
+        <InviteCard
+          code={event.join_code}
+          blurb="Players scan this or follow the link, sign in, and they're in the field."
+          tournamentId={tournamentId}
+        />
       )}
 
       {/* --- The player's own place in it -------------------------------- */}
@@ -261,4 +290,3 @@ function MyGroup({
     </Card>
   );
 }
-

@@ -83,9 +83,10 @@ stack changed from Flutter; web-only itself was never in question.
 | 4 | Player: see my group, enter scores, walk the ADR-007 tie-break | ✅ Done |
 | 5 | Live leaderboard, refetching on the ADR-010 signal | ✅ Done |
 
-**Not yet done: anyone has actually logged in.** The magic-link flow has never run
-against the real project, because it needs the `sb_publishable_` key in `frontend/.env`.
-Everything either side of it is tested, but the first click-through is still ahead.
+**Magic-link login has been used against the real project** — the courses, tournaments and fun
+rounds in the development database were all created through these screens, so the ES256/JWKS path
+is proven end to end, not just unit-tested. What has *not* happened is a deployment: everything
+still runs on `localhost`, which is the remaining blocker for the Phase 1 milestone.
 
 Slice 4 is the one to get right: score entry is a conversation, not a form. Strokes go in, and if
 they tie the API answers with `tied_participants` — the app then asks *only those players* who was
@@ -113,8 +114,8 @@ deferred at MVP is now Phase 3 (below).
 
 | # | Workstream | Scope | Main dependency |
 |---|-----------|-------|-----------------|
-| 1 | **Fun Rounds** ✅ *built* | The whole casual, non-tournament flow: start a round, pick a course, invite Threes players by link, add non-mobile (virtual) players, enter hole scores, view the scoreboard and opponents' holes, a quick leaderboard, finish the round. Scope: a single group of 2–4 (field capped at 4). | Delivered by modelling a fun round as a `kind=fun_round` tournament (one discriminator column) driven by `FunRoundService`, so the pure engine, score entry, leaderboard, realtime and auth guards are all reused unchanged — no `Round`/`Tournament` decoupling was needed. |
-| 2 | **Invite / join-links + QR** | Organiser generates a shareable join link and QR for a tournament (and for a fun round); joining by link instead of hand-shared UUID. | A join-token endpoint on the backend; a share/QR surface on the frontend. Today joining is by knowing the tournament id. |
+| 1 | **Fun Rounds** ✅ *built* | The whole casual, non-tournament flow: start a round, pick a course *and the three holes*, invite by link, add non-mobile (virtual) players, enter hole scores, view the scoreboard, a quick leaderboard, finish. Scope: a single group of 2–4 (field capped at 4). | Delivered by modelling a fun round as a `kind=fun_round` tournament (one discriminator column) driven by `FunRoundService`, so the pure engine, score entry, leaderboard, realtime and auth guards are all reused unchanged. Follow-up fixes (#15–#17) added the invitee preview, hole selection at setup, and course hole counts. |
+| 2 | **Invite / join-links + QR** ✅ *built* | A short revocable join code (`THR-8K2QF`) on every tournament and fun round, `GET`/`POST /join/{code}` to preview and accept an invitation, and an on-screen QR the organiser shows or shares. Replaces joining by hand-shared UUID. | The code is the invitation rather than the id, so it can be read aloud, printed, and **withdrawn** — `POST /tournaments/{id}/join-code` retires the old one. `/join/{code}` is the only unguarded read in the app, and carries no field and no draw. This also closed a hole that made the MVP unrunnable: an invited player hitting `/t/{id}` met a 403 with the join button behind it. |
 | 3 | **Player caps** | An optional maximum field size per tournament, enforced at self-registration. | A `max_players` field on the tournament model/schema; a guard in `ParticipantService.self_register` (which enforces no maximum today). |
 | 4 | **Reminders** | Notify players of an upcoming event (and, later, that scoring is open). | An email/notification channel — **none exists yet** (no `EMAIL_FROM`, no outbound mail). This is the one item that pulls new infrastructure forward. |
 | 5 | **Referrals** | A referral loop so existing players bring new organisers/players. | Referral codes + attribution; overlaps with invites (#2) and the growth strategy stub. |

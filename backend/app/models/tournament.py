@@ -75,6 +75,12 @@ class Tournament(Base, TimestampMixin):
         index=True,
     )
 
+    # The invitation, handed out as a link or a QR. Unique and short enough to
+    # read aloud; regeneratable, which is the whole reason it isn't the id — an
+    # id printed on a sign can never be withdrawn. On the shared table so a Fun
+    # Round is invited exactly the same way.
+    join_code: Mapped[str] = mapped_column(String(16), nullable=False, unique=True)
+
     # What this row is: a full tournament (the default) or a casual Fun Round.
     # The engine treats both identically; the discriminator only separates them
     # in listings and in tournament-only concerns.

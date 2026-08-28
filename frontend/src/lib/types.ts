@@ -62,6 +62,8 @@ export type Tournament = {
   id: UUID;
   name: string;
   organiser_id: UUID;
+  /** The invitation — null unless you're the organiser, whose code it is to hand out. */
+  join_code: string | null;
   status: TournamentStatus;
   format: 'ROUND_ROBIN';
   course_id: UUID | null;
@@ -80,6 +82,8 @@ export type FunRound = {
   id: UUID;
   name: string;
   host_id: UUID;
+  /** The invitation. Everyone in a fun round has it — pulling in a fourth is the point. */
+  join_code: string;
   course_id: UUID | null;
   /** The loop chosen at setup. Null means the draw takes the first three holes. */
   hole_numbers: number[] | null;
@@ -190,4 +194,22 @@ export type Leaderboard = {
 export type LeaderboardChanged = {
   tournament_id: UUID;
   round_id: UUID;
+};
+
+/**
+ * An invitation, resolved from its code — the one read open to someone with no
+ * relationship to the event yet, which is what makes a shared link work.
+ *
+ * `kind` says where accepting lands you: a tournament and a fun round are
+ * different screens even though they are the same row underneath.
+ */
+export type JoinPreview = {
+  kind: 'tournament' | 'fun_round';
+  id: UUID;
+  name: string;
+  host_name: string;
+  player_count: number;
+  /** False once registration closes, or a fun round's single group is full. */
+  can_join: boolean;
+  status: TournamentStatus;
 };

@@ -106,6 +106,10 @@ class FunRoundRead(BaseModel):
     id: UUID
     name: str
     host_id: UUID
+    # The invitation. Unlike a tournament's, this goes to everyone in the round
+    # rather than the host alone: a fun round is a few mates, and any of them
+    # pulling in a fourth is the point rather than a leak.
+    join_code: str
     course_id: UUID | None
     # The loop chosen at setup, so the lobby can say which holes are being played
     # instead of leaving the host to find out at the first tee. None means none was
@@ -122,6 +126,7 @@ class FunRoundRead(BaseModel):
             id=fun_round.id,
             name=fun_round.name,
             host_id=fun_round.organiser_id,
+            join_code=fun_round.join_code,
             course_id=fun_round.course_id,
             hole_numbers=fun_round.hole_numbers,
             status=_to_fun_round_status(fun_round.status),

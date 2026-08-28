@@ -16,6 +16,7 @@ import type {
   FunRound,
   FunRoundDetail,
   FunRoundPreview,
+  JoinPreview,
   GroupCard,
   HoleResult,
   Leaderboard,
@@ -42,6 +43,7 @@ export const keys = {
   funRounds: ['fun-rounds'] as const,
   funRound: (id: UUID) => ['fun-round', id] as const,
   funRoundPreview: (id: UUID) => ['fun-round', id, 'preview'] as const,
+  join: (code: string) => ['join', code] as const,
 };
 
 // --- Tournaments -----------------------------------------------------------
@@ -341,5 +343,39 @@ export function useSubmitHole(groupId: UUID, tournamentId: UUID) {
       // through Supabase — they are the one person who already knows.
       void client.invalidateQueries({ queryKey: ['tournament', tournamentId] });
     },
+  });
+}
+
+// --- Invitations -----------------------------------------------------------
+
+/** What a join code names. Open to anyone signed in — the code is the credential. */
+export function useJoinPreview(code: string) {
+  return useQuery({
+    queryKey: keys.join(code),
+    queryFn: () => api.get<JoinPreview>(`/join/${code}`),
+    // An invitation is read once and acted on; a stale one would offer a button
+    // for a round that filled up while the page sat open.
+    staleTime: 0,
+  });
+}
+
+export function useAcceptInvitation(code: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<Participant>(`/join/${code}`, {}),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.join(code) });
+      void client.invalidateQueries({ queryKey: keys.playing });
+      void client.invalidateQueries({ queryKey: keys.funRounds });
+    },
+  });
+}
+
+/** Retire the current invitation and mint a new one. Organiser only. */
+export function useRegenerateJoinCode(id: UUID) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<{ join_code: string }>(`/tournaments/${id}/join-code`),
+    onSuccess: () => void client.invalidateQueries({ queryKey: keys.tournament(id) }),
   });
 }

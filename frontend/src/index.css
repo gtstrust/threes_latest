@@ -352,3 +352,29 @@ select {
 .board td:nth-child(5) {
   font-variant-numeric: tabular-nums;
 }
+
+/* The join code is read off a screen and typed into someone else's phone, so it
+   is set large, monospaced and widely tracked — the three things that stop a
+   B being read as an 8. The alphabet already excludes the worst offenders. */
+.join-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1.6rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-align: center;
+  margin: 0.75rem 0;
+}
+
+/* Capped rather than full-bleed: past about this size a QR is no easier to scan,
+   and the card stops looking like the rest of the app. The white plate is part
+   of the SVG, not the page, so the code survives a dark theme. */
+.qr {
+  display: block;
+  width: 100%;
+  max-width: 15rem;
+  height: auto;
+  margin: 0 auto 1rem;
+  padding: 0.5rem;
+  background: #ffffff;
+  border-radius: 8px;
+}
