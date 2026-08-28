@@ -77,6 +77,9 @@ input {
   border-radius: 0.6rem;
   background: var(--surface);
   min-height: 3rem;
+  /* Form controls don't reliably inherit color, so set it explicitly (as
+     `select` does) — otherwise light mode gets white-on-white input text. */
+  color: inherit;
 }
 
 input:focus-visible,

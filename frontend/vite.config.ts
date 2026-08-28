@@ -3,6 +3,11 @@ import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
+  // Pin the dev port and refuse to start if it is taken, rather than silently
+  // moving to 5174. 5173 is the origin the backend's CORS_ORIGINS and Supabase's
+  // redirect allow-list know about; a second dev server on another port loads but
+  // cannot reach the API, which reads to a user as "Could not reach the server".
+  server: { port: 5173, strictPort: true },
   plugins: [
     react(),
     VitePWA({
