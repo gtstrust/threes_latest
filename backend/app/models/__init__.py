@@ -3,7 +3,12 @@ from app.models.participant import TournamentParticipant
 from app.models.player import Player
 from app.models.round import Group, GroupHole, GroupMember, Round, RoundStatus
 from app.models.score import HoleResult, HoleScore
-from app.models.tournament import Tournament, TournamentFormat, TournamentStatus
+from app.models.tournament import (
+    Tournament,
+    TournamentFormat,
+    TournamentKind,
+    TournamentStatus,
+)
 
 __all__ = [
     "Course",
@@ -18,6 +23,7 @@ __all__ = [
     "RoundStatus",
     "Tournament",
     "TournamentFormat",
+    "TournamentKind",
     "TournamentParticipant",
     "TournamentStatus",
 ]

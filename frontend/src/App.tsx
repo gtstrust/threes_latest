@@ -8,6 +8,9 @@ import { NewTournamentPage } from './features/tournaments/NewTournamentPage';
 import { TournamentPage } from './features/tournaments/TournamentPage';
 import { LeaderboardPage } from './features/leaderboard/LeaderboardPage';
 import { ScorePage } from './features/scoring/ScorePage';
+import { NewFunRoundPage } from './features/fun-rounds/NewFunRoundPage';
+import { FunRoundPage } from './features/fun-rounds/FunRoundPage';
+import { FunRoundLeaderboardPage } from './features/fun-rounds/FunRoundLeaderboardPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -43,6 +46,25 @@ function ScoreRoute() {
   return groupId ? <ScorePage groupId={groupId} /> : <Navigate to="/" replace />;
 }
 
+function FunRoundRoute() {
+  const { id } = useParams();
+  return id ? <FunRoundPage funRoundId={id} /> : <Navigate to="/" replace />;
+}
+
+function FunRoundLeaderboardRoute() {
+  const { id } = useParams();
+  return id ? <FunRoundLeaderboardPage funRoundId={id} /> : <Navigate to="/" replace />;
+}
+
+function FunRoundScoreRoute() {
+  const { id, groupId } = useParams();
+  return id && groupId ? (
+    <ScorePage groupId={groupId} backTo={{ to: `/r/${id}`, label: 'Fun round' }} />
+  ) : (
+    <Navigate to="/" replace />
+  );
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -57,6 +79,11 @@ export default function App() {
               <Route path="/t/:id" element={<TournamentRoute />} />
               <Route path="/t/:id/leaderboard" element={<LeaderboardRoute />} />
               <Route path="/g/:groupId" element={<ScoreRoute />} />
+              {/* Fun rounds — casual, self-run. Short paths, shared by text. */}
+              <Route path="/rounds/new" element={<NewFunRoundPage />} />
+              <Route path="/r/:id" element={<FunRoundRoute />} />
+              <Route path="/r/:id/leaderboard" element={<FunRoundLeaderboardRoute />} />
+              <Route path="/r/:id/g/:groupId" element={<FunRoundScoreRoute />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </RequireAuth>

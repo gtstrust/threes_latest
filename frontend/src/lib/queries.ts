@@ -11,7 +11,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 import type {
   Course,
+  CourseSummary,
   CourseWithHoles,
+  FunRound,
+  FunRoundDetail,
+  FunRoundPreview,
   GroupCard,
   HoleResult,
   Leaderboard,
@@ -35,6 +39,9 @@ export const keys = {
   card: (groupId: UUID) => ['group', groupId, 'card'] as const,
   courses: ['courses'] as const,
   course: (id: UUID) => ['course', id] as const,
+  funRounds: ['fun-rounds'] as const,
+  funRound: (id: UUID) => ['fun-round', id] as const,
+  funRoundPreview: (id: UUID) => ['fun-round', id, 'preview'] as const,
 };
 
 // --- Tournaments -----------------------------------------------------------
@@ -100,7 +107,10 @@ export function useRoundLeaderboard(roundId: UUID | undefined) {
 }
 
 export function useCourses() {
-  return useQuery({ queryKey: keys.courses, queryFn: () => api.get<Course[]>('/courses') });
+  return useQuery({
+    queryKey: keys.courses,
+    queryFn: () => api.get<CourseSummary[]>('/courses'),
+  });
 }
 
 export function useCourse(id: UUID | null | undefined) {
@@ -135,8 +145,7 @@ export function useSetStatus(id: UUID) {
     // Only the registration transitions and the final one reach here. The play
     // statuses belong to the round endpoints (ADR-008) and this endpoint refuses
     // them, so the UI must never offer them.
-    mutationFn: (status: string) =>
-      api.post<Tournament>(`/tournaments/${id}/status`, { status }),
+    mutationFn: (status: string) => api.post<Tournament>(`/tournaments/${id}/status`, { status }),
     onSuccess: () => void client.invalidateQueries({ queryKey: ['tournament', id] }),
   });
 }
@@ -145,7 +154,9 @@ export function useAddVirtualPlayer(id: UUID) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (display_name: string) =>
-      api.post<Participant>(`/tournaments/${id}/participants/virtual`, { display_name }),
+      api.post<Participant>(`/tournaments/${id}/participants/virtual`, {
+        display_name,
+      }),
     onSuccess: () => void client.invalidateQueries({ queryKey: keys.field(id) }),
   });
 }
@@ -195,20 +206,118 @@ export function useCompleteRound(tournamentId: UUID) {
 export function useCreateCourse() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (body: { name: string; location?: string }) =>
-      api.post<Course>('/courses', body),
+    mutationFn: (body: { name: string; location?: string }) => api.post<Course>('/courses', body),
     onSuccess: () => void client.invalidateQueries({ queryKey: keys.courses }),
   });
 }
 
-export function useUpsertHoles(courseId: UUID) {
+export function useUpsertHoles() {
   const client = useQueryClient();
   return useMutation({
     // A full replacement, not a delta: the endpoint takes the whole set of holes
-    // being played, so the editor always submits every one of them.
-    mutationFn: (holes: { hole_number: number; par?: number | null }[]) =>
-      api.put(`/courses/${courseId}/holes`, { holes }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: keys.course(courseId) }),
+    // being played, so the editor always submits every one of them. The course id
+    // travels with the call rather than being bound when the hook runs, so a
+    // just-created course (whose id the previous render didn't have) is targeted
+    // correctly in the same submit.
+    mutationFn: ({
+      courseId,
+      holes,
+    }: {
+      courseId: UUID;
+      holes: { hole_number: number; par?: number | null }[];
+    }) => api.put(`/courses/${courseId}/holes`, { holes }),
+    onSuccess: (_data, { courseId }) =>
+      void client.invalidateQueries({ queryKey: keys.course(courseId) }),
+  });
+}
+
+// --- Fun Rounds ------------------------------------------------------------
+
+/** Fun rounds you host or have joined. */
+export function useFunRounds() {
+  return useQuery({
+    queryKey: keys.funRounds,
+    queryFn: () => api.get<FunRound[]>('/fun-rounds'),
+  });
+}
+
+export function useFunRound(id: UUID) {
+  return useQuery({
+    queryKey: keys.funRound(id),
+    queryFn: () => api.get<FunRoundDetail>(`/fun-rounds/${id}`),
+  });
+}
+
+export function useCreateFunRound() {
+  const client = useQueryClient();
+  return useMutation({
+    // The loop is chosen here rather than at start, so it travels with the round
+    // from the moment it exists and the server can check it against the course
+    // while the host is still on the form.
+    mutationFn: (body: { name: string; course_id?: UUID; hole_numbers?: number[] }) =>
+      api.post<FunRoundDetail>('/fun-rounds', body),
+    onSuccess: () => void client.invalidateQueries({ queryKey: keys.funRounds }),
+  });
+}
+
+/**
+ * What an invitee sees before joining. The one fun-round read open to anyone
+ * signed in, which is what makes the shared link work as an invite.
+ */
+export function useFunRoundPreview(id: UUID, enabled = true) {
+  return useQuery({
+    queryKey: keys.funRoundPreview(id),
+    queryFn: () => api.get<FunRoundPreview>(`/fun-rounds/${id}/preview`),
+    enabled,
+  });
+}
+
+export function useJoinFunRound(id: UUID) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<Participant>(`/fun-rounds/${id}/players`, {}),
+    onSuccess: () => {
+      // funRound(id) is the prefix of funRoundPreview(id), so the invitation
+      // screen's own data is refetched by the same call that unlocks the full
+      // round — the join is the moment both answers change.
+      void client.invalidateQueries({ queryKey: keys.funRound(id) });
+      void client.invalidateQueries({ queryKey: keys.funRounds });
+    },
+  });
+}
+
+export function useAddVirtualToFunRound(id: UUID) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (display_name: string) =>
+      api.post<Participant>(`/fun-rounds/${id}/virtual`, { display_name }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: keys.funRound(id) }),
+  });
+}
+
+export function useStartFunRound(id: UUID) {
+  const client = useQueryClient();
+  return useMutation({
+    // A fun round is one loop, so a hole selection is exactly three. Omitted means
+    // play whatever was chosen at setup — which is the normal case, since that is
+    // where the host picks.
+    mutationFn: (holeNumbers?: number[]) =>
+      api.post<FunRoundDetail>(
+        `/fun-rounds/${id}/start`,
+        holeNumbers?.length ? { hole_numbers: holeNumbers } : {},
+      ),
+    onSuccess: () => void client.invalidateQueries({ queryKey: keys.funRound(id) }),
+  });
+}
+
+export function useFinishFunRound(id: UUID) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<FunRoundDetail>(`/fun-rounds/${id}/finish`),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.funRound(id) });
+      void client.invalidateQueries({ queryKey: keys.funRounds });
+    },
   });
 }
 

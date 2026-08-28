@@ -7,6 +7,7 @@ from app.core.deps import (
     ParticipantServiceDep,
     RoundServiceDep,
     TournamentServiceDep,
+    reject_fun_round,
     require_can_view,
     require_organiser,
 )
@@ -62,6 +63,7 @@ async def draw_round(
     attached to the real course; the holes played are recorded against the round.
     """
     tournament = await _tournament_or_404(tournament_id, tournaments)
+    reject_fun_round(tournament)
     require_organiser(tournament, current_user)
     try:
         round_ = await rounds.draw_round(tournament, payload.hole_numbers if payload else None)

@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy import ARRAY, DateTime, ForeignKey, Integer, String
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -23,6 +23,20 @@ class TournamentStatus(str, Enum):
     ROUND_IN_PROGRESS = "ROUND_IN_PROGRESS"
     ROUND_COMPLETE = "ROUND_COMPLETE"
     TOURNAMENT_COMPLETE = "TOURNAMENT_COMPLETE"
+
+
+class TournamentKind(str, Enum):
+    """What a `tournaments` row actually is.
+
+    A Fun Round is a casual, self-run round (Phase 2) that reuses the whole
+    scoring/grouping/leaderboard machinery — so rather than a parallel set of
+    tables, it *is* a tournament row carrying this discriminator. The value keeps
+    the two apart wherever it matters: listings, and any tournament-only logic
+    (organiser fees, sponsors) that must never apply to a casual round.
+    """
+
+    TOURNAMENT = "TOURNAMENT"
+    FUN_ROUND = "FUN_ROUND"
 
 
 class TournamentFormat(str, Enum):
@@ -61,6 +75,15 @@ class Tournament(Base, TimestampMixin):
         index=True,
     )
 
+    # What this row is: a full tournament (the default) or a casual Fun Round.
+    # The engine treats both identically; the discriminator only separates them
+    # in listings and in tournament-only concerns.
+    kind: Mapped[TournamentKind] = mapped_column(
+        SAEnum(TournamentKind, name="tournament_kind"),
+        nullable=False,
+        default=TournamentKind.TOURNAMENT,
+    )
+
     status: Mapped[TournamentStatus] = mapped_column(
         SAEnum(TournamentStatus, name="tournament_status"),
         nullable=False,
@@ -82,4 +105,11 @@ class Tournament(Base, TimestampMixin):
         nullable=True,
         index=True,
     )
+    # The holes chosen at setup, and the draw's default selection. A fun round's
+    # host picks their loop when they pick the course, which is earlier than the
+    # draw that consumes it, so the answer has to outlive the request that made
+    # it. NULL means nothing was chosen: the whole course. Tournaments leave it
+    # NULL and pass their selection to `draw_round` instead.
+    hole_numbers: Mapped[list[int] | None] = mapped_column(ARRAY(Integer), nullable=True)
+
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

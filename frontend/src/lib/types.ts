@@ -51,6 +51,13 @@ export type Course = {
 
 export type CourseWithHoles = Course & { holes: Hole[] };
 
+/**
+ * A course as `GET /courses` lists it. `hole_count` rides along because a course
+ * with no holes entered cannot be played, and the list is the last point at which
+ * that is worth finding out.
+ */
+export type CourseSummary = Course & { hole_count: number };
+
 export type Tournament = {
   id: UUID;
   name: string;
@@ -60,6 +67,45 @@ export type Tournament = {
   course_id: UUID | null;
   created_at: string;
   updated_at: string;
+};
+
+/**
+ * A Fun Round — a casual, self-run round (Phase 2). It is a tournament under the
+ * hood, but the client sees a simpler three-state lifecycle, not the ADR-003
+ * machine: a `lobby` you fill, a round you're `playing`, a `finished` card.
+ */
+export type FunRoundStatus = 'lobby' | 'playing' | 'finished';
+
+export type FunRound = {
+  id: UUID;
+  name: string;
+  host_id: UUID;
+  course_id: UUID | null;
+  /** The loop chosen at setup. Null means the draw takes the first three holes. */
+  hole_numbers: number[] | null;
+  status: FunRoundStatus;
+  created_at: string;
+  updated_at: string;
+};
+
+/**
+ * What someone sent the link sees before they join — the one fun-round read that
+ * isn't players-only, since guarding it would refuse the very people invited.
+ * Deliberately carries no field and no draw.
+ */
+export type FunRoundPreview = {
+  id: UUID;
+  name: string;
+  host_name: string;
+  player_count: number;
+  is_full: boolean;
+  status: FunRoundStatus;
+};
+
+/** A fun round with its field and — once started — its single drawn group. */
+export type FunRoundDetail = FunRound & {
+  participants: Participant[];
+  round: RoundWithGroups | null;
 };
 
 export type Participant = {

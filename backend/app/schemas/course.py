@@ -65,5 +65,16 @@ class CourseRead(BaseModel):
     updated_at: datetime
 
 
+class CourseSummary(CourseRead):
+    """A course as it appears in a list, with enough to tell if it can be played.
+
+    Separate from `CourseRead` rather than a field on it: the count is a scan of
+    another table, worth paying for on the list a course is chosen from and not on
+    the three routes that return a single course they already hold.
+    """
+
+    hole_count: int
+
+
 class CourseWithHoles(CourseRead):
     holes: list[HoleRead]

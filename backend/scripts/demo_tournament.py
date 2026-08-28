@@ -24,7 +24,6 @@ creates its own players and courses, so runs accumulate rather than collide.
 from __future__ import annotations
 
 import argparse
-import os
 import random
 import sys
 import uuid
@@ -33,7 +32,10 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-import jwt
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _dev_auth import mint_token, resolve_secret  # noqa: E402
 
 DEFAULT_BASE_URL = "http://localhost:8000"
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
@@ -167,49 +169,6 @@ class Totals:
     points: int = 0
     strokes: int = 0
     holes: int = 0
-
-
-def mint_token(secret: str, email: str) -> str:
-    """Sign the JWT Supabase would have issued.
-
-    There is no login endpoint to call: Supabase hands tokens straight to the
-    client and this API only verifies them (app/core/security.py). Same claims as
-    tests/conftest.py, minus pytest.
-    """
-    return jwt.encode(
-        {"sub": str(uuid.uuid4()), "email": email, "aud": "authenticated"},
-        secret,
-        algorithm="HS256",
-    )
-
-
-def read_env_file(path: Path) -> dict[str, str]:
-    """Pull KEY=value pairs out of a .env file. Absent file is not an error."""
-    values: dict[str, str] = {}
-    if not path.exists():
-        return values
-    for line in path.read_text().splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, _, value = stripped.partition("=")
-        values[key.strip()] = value.strip().strip('"').strip("'")
-    return values
-
-
-def resolve_secret(args: argparse.Namespace) -> str:
-    """--jwt-secret, else the environment, else backend/.env."""
-    if args.jwt_secret:
-        return str(args.jwt_secret)
-    from_env = os.environ.get("SUPABASE_JWT_SECRET")
-    if from_env:
-        return from_env
-    from_file = read_env_file(args.env_file).get("SUPABASE_JWT_SECRET")
-    if from_file:
-        return from_file
-    sys.exit(
-        f"No SUPABASE_JWT_SECRET found. Pass --jwt-secret, export it, or put it in {args.env_file}."
-    )
 
 
 class Reporter:

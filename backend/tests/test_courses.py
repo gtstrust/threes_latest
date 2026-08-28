@@ -80,6 +80,25 @@ async def test_anyone_authenticated_can_read_and_search_courses(client, make_tok
 
 
 @pytest.mark.asyncio
+async def test_the_course_list_says_how_many_holes_each_one_has(client, make_token):
+    """A course with no holes can't be played, and the list is where that's decidable."""
+    owner = await _player(client, make_token, email="owner@example.com")
+    empty = await _create_course(client, owner, name="Not Set Up Yet")
+    playable = await _create_course(client, owner, name="Ready To Play")
+    await client.put(
+        f"/courses/{playable['id']}/holes",
+        headers=owner,
+        json={"holes": [{"hole_number": n} for n in (1, 2, 3)]},
+    )
+
+    listed = await client.get("/courses", headers=owner)
+
+    counts = {row["name"]: row["hole_count"] for row in listed.json()}
+    assert counts[empty["name"]] == 0
+    assert counts[playable["name"]] == 3
+
+
+@pytest.mark.asyncio
 async def test_only_the_creator_can_edit_a_course(client, make_token):
     owner = await _player(client, make_token, email="owner@example.com")
     course = await _create_course(client, owner)

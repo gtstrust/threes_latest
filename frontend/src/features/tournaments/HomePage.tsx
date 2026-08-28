@@ -11,10 +11,10 @@
 import { Link } from 'react-router-dom';
 
 import { Card, Empty, ErrorNote, Loading, Page } from '../../components/ui';
-import { useOrganising, usePlaying } from '../../lib/queries';
+import { useFunRounds, useOrganising, usePlaying } from '../../lib/queries';
 import { useSession } from '../auth/session-context';
 import { signOut } from '../../lib/supabase';
-import type { Tournament } from '../../lib/types';
+import type { FunRound, FunRoundStatus, Tournament } from '../../lib/types';
 import { readableStatus } from './format';
 
 function TournamentList({ tournaments }: { tournaments: Tournament[] }) {
@@ -32,10 +32,32 @@ function TournamentList({ tournaments }: { tournaments: Tournament[] }) {
   );
 }
 
+const FUN_ROUND_LABEL: Record<FunRoundStatus, string> = {
+  lobby: 'Getting ready',
+  playing: 'Playing',
+  finished: 'Finished',
+};
+
+function FunRoundList({ funRounds }: { funRounds: FunRound[] }) {
+  return (
+    <ul className="list">
+      {funRounds.map((funRound) => (
+        <li key={funRound.id}>
+          <Link to={`/r/${funRound.id}`}>
+            <span className="list-name">{funRound.name}</span>
+            <span className="badge">{FUN_ROUND_LABEL[funRound.status]}</span>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function HomePage() {
   const { player } = useSession();
   const playing = usePlaying();
   const organising = useOrganising();
+  const funRounds = useFunRounds();
 
   return (
     <Page
@@ -47,6 +69,18 @@ export function HomePage() {
       }
     >
       <p className="muted">{player?.display_name ?? player?.email}</p>
+
+      <Card>
+        <h2>Fun rounds</h2>
+        {funRounds.isPending && <Loading />}
+        <ErrorNote error={funRounds.error} />
+        {funRounds.data && funRounds.data.length > 0 && (
+          <FunRoundList funRounds={funRounds.data} />
+        )}
+        <Link to="/rounds/new" className="button-link">
+          Start a fun round
+        </Link>
+      </Card>
 
       <Card>
         <h2>Playing in</h2>

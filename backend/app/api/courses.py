@@ -7,6 +7,7 @@ from app.models.course import Course
 from app.schemas.course import (
     CourseCreate,
     CourseRead,
+    CourseSummary,
     CourseUpdate,
     CourseWithHoles,
     HoleRead,
@@ -41,15 +42,23 @@ async def create_course(
     return CourseRead.model_validate(course)
 
 
-@router.get("", response_model=list[CourseRead])
+@router.get("", response_model=list[CourseSummary])
 async def list_courses(
     current_user: CurrentUserDep,
     service: CourseServiceDep,
     name: str | None = Query(default=None, description="Filter by partial name match"),
-) -> list[CourseRead]:
-    """Courses are shared, so any authenticated caller can browse them."""
+) -> list[CourseSummary]:
+    """Courses are shared, so any authenticated caller can browse them.
+
+    Each carries its `hole_count`: scoring needs holes, and a course that has none
+    entered yet cannot be played. Saying so here means the choice is made with that
+    known, rather than refused later when the round is drawn.
+    """
     courses = await service.search(name)
-    return [CourseRead.model_validate(course) for course in courses]
+    return [
+        CourseSummary(**CourseRead.model_validate(course).model_dump(), hole_count=hole_count)
+        for course, hole_count in courses
+    ]
 
 
 @router.get("/{course_id}", response_model=CourseWithHoles)

@@ -65,7 +65,8 @@ class CourseService:
     async def get_with_holes(self, course_id: UUID) -> Course | None:
         return await self._repository.get_with_holes(course_id)
 
-    async def search(self, name: str | None = None) -> Sequence[Course]:
+    async def search(self, name: str | None = None) -> Sequence[tuple[Course, int]]:
+        """Courses with their hole counts, so an unplayable one is visible as such."""
         return await self._repository.search(name)
 
     async def update(self, course: Course, updates: CourseUpdate) -> Course:
