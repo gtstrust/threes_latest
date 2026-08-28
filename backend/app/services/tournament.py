@@ -11,7 +11,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import CurrentUser
-from app.models.tournament import Tournament, TournamentStatus
+from app.models.tournament import Tournament, TournamentKind, TournamentStatus
 from app.repositories.player import PlayerRepository
 from app.repositories.tournament import TournamentRepository
 from app.schemas.tournament import TournamentCreate, TournamentUpdate
@@ -79,8 +79,16 @@ class TournamentService:
         self._repository = TournamentRepository(session)
         self._players = PlayerRepository(session)
 
-    async def create(self, organiser: CurrentUser, payload: TournamentCreate) -> Tournament:
+    async def create(
+        self,
+        organiser: CurrentUser,
+        payload: TournamentCreate,
+        kind: TournamentKind = TournamentKind.TOURNAMENT,
+    ) -> Tournament:
         """Create a tournament owned by `organiser`.
+
+        `kind` distinguishes a full tournament from a casual Fun Round, which is
+        stored as a tournament row and driven by `FunRoundService`.
 
         Raises:
             OrganiserProfileMissing: If the user hasn't provisioned a profile.
@@ -90,7 +98,7 @@ class TournamentService:
         """
         if await self._players.get_by_id(organiser.id) is None:
             raise OrganiserProfileMissing
-        return await self._repository.create(organiser.id, payload)
+        return await self._repository.create(organiser.id, payload, kind=kind)
 
     async def get_by_id(self, tournament_id: UUID) -> Tournament | None:
         return await self._repository.get_by_id(tournament_id)
@@ -101,6 +109,10 @@ class TournamentService:
     async def list_for_player(self, player_id: UUID) -> Sequence[Tournament]:
         """Tournaments the player is competing in, which they may not organise."""
         return await self._repository.list_for_player(player_id)
+
+    async def list_fun_rounds_for_player(self, player_id: UUID) -> Sequence[Tournament]:
+        """Fun rounds the player is in — including any they host (they self-register)."""
+        return await self._repository.list_for_player(player_id, kind=TournamentKind.FUN_ROUND)
 
     async def update_details(self, tournament: Tournament, updates: TournamentUpdate) -> Tournament:
         return await self._repository.update(tournament, updates)

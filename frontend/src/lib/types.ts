@@ -62,6 +62,29 @@ export type Tournament = {
   updated_at: string;
 };
 
+/**
+ * A Fun Round — a casual, self-run round (Phase 2). It is a tournament under the
+ * hood, but the client sees a simpler three-state lifecycle, not the ADR-003
+ * machine: a `lobby` you fill, a round you're `playing`, a `finished` card.
+ */
+export type FunRoundStatus = 'lobby' | 'playing' | 'finished';
+
+export type FunRound = {
+  id: UUID;
+  name: string;
+  host_id: UUID;
+  course_id: UUID | null;
+  status: FunRoundStatus;
+  created_at: string;
+  updated_at: string;
+};
+
+/** A fun round with its field and — once started — its single drawn group. */
+export type FunRoundDetail = FunRound & {
+  participants: Participant[];
+  round: RoundWithGroups | null;
+};
+
 export type Participant = {
   id: UUID;
   tournament_id: UUID;

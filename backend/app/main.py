@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import (
     auth,
     courses,
+    fun_rounds,
     groups,
     leaderboard,
     participants,
@@ -31,6 +32,7 @@ app.include_router(courses.router)
 app.include_router(tournaments.router)
 app.include_router(participants.router)
 app.include_router(rounds.router)
+app.include_router(fun_rounds.router)
 app.include_router(groups.router)
 app.include_router(scores.router)
 app.include_router(leaderboard.router)

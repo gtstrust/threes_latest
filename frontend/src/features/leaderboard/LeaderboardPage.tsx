@@ -81,7 +81,7 @@ export function LeaderboardPage({ tournamentId }: { tournamentId: UUID }) {
   );
 }
 
-function Board({ board }: { board: Leaderboard }) {
+export function Board({ board }: { board: Leaderboard }) {
   if (board.entries.length === 0) {
     return (
       <Card>

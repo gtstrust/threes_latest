@@ -25,6 +25,20 @@ class TournamentStatus(str, Enum):
     TOURNAMENT_COMPLETE = "TOURNAMENT_COMPLETE"
 
 
+class TournamentKind(str, Enum):
+    """What a `tournaments` row actually is.
+
+    A Fun Round is a casual, self-run round (Phase 2) that reuses the whole
+    scoring/grouping/leaderboard machinery — so rather than a parallel set of
+    tables, it *is* a tournament row carrying this discriminator. The value keeps
+    the two apart wherever it matters: listings, and any tournament-only logic
+    (organiser fees, sponsors) that must never apply to a casual round.
+    """
+
+    TOURNAMENT = "TOURNAMENT"
+    FUN_ROUND = "FUN_ROUND"
+
+
 class TournamentFormat(str, Enum):
     """Formats the database column can hold — not the ones the API will accept.
 
@@ -59,6 +73,15 @@ class Tournament(Base, TimestampMixin):
         ForeignKey("players.id"),
         nullable=False,
         index=True,
+    )
+
+    # What this row is: a full tournament (the default) or a casual Fun Round.
+    # The engine treats both identically; the discriminator only separates them
+    # in listings and in tournament-only concerns.
+    kind: Mapped[TournamentKind] = mapped_column(
+        SAEnum(TournamentKind, name="tournament_kind"),
+        nullable=False,
+        default=TournamentKind.TOURNAMENT,
     )
 
     status: Mapped[TournamentStatus] = mapped_column(

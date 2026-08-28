@@ -8,8 +8,9 @@ from app.core.db import get_db
 from app.core.security import CurrentUser, decode_supabase_jwt
 from app.models.course import Course
 from app.models.round import Group
-from app.models.tournament import Tournament
+from app.models.tournament import Tournament, TournamentKind
 from app.services.course import CourseService
+from app.services.fun_round import FunRoundService
 from app.services.leaderboard import LeaderboardService
 from app.services.participant import ParticipantService
 from app.services.player import PlayerService
@@ -57,6 +58,12 @@ async def get_round_service(
     return RoundService(session)
 
 
+async def get_fun_round_service(
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> FunRoundService:
+    return FunRoundService(session)
+
+
 async def get_score_entry_service(
     session: Annotated[AsyncSession, Depends(get_db)],
 ) -> ScoreEntryService:
@@ -85,6 +92,7 @@ TournamentServiceDep = Annotated[TournamentService, Depends(get_tournament_servi
 CourseServiceDep = Annotated[CourseService, Depends(get_course_service)]
 ParticipantServiceDep = Annotated[ParticipantService, Depends(get_participant_service)]
 RoundServiceDep = Annotated[RoundService, Depends(get_round_service)]
+FunRoundServiceDep = Annotated[FunRoundService, Depends(get_fun_round_service)]
 ScoreEntryServiceDep = Annotated[ScoreEntryService, Depends(get_score_entry_service)]
 LeaderboardServiceDep = Annotated[LeaderboardService, Depends(get_leaderboard_service)]
 RealtimeNotifierDep = Annotated[RealtimeNotifier, Depends(get_realtime_notifier)]
@@ -102,6 +110,18 @@ def require_course_owner(course: Course, current_user: CurrentUser) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only the player who created this course can change it",
         )
+
+
+def reject_fun_round(tournament: Tournament) -> None:
+    """Refuse a fun round on a tournament-management route.
+
+    A fun round is a `tournaments` row, so it would otherwise be reachable through
+    the tournament endpoints — where it could be hand-driven through the raw ADR-003
+    state machine, or have its single-group cap bypassed by self-registering. Those
+    routes therefore treat a fun round as not found; it is driven via `/fun-rounds`.
+    """
+    if tournament.kind is TournamentKind.FUN_ROUND:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tournament not found")
 
 
 def require_organiser(tournament: Tournament, current_user: CurrentUser) -> None:

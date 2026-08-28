@@ -23,7 +23,14 @@ import { NOTHING_ASKED, nextPrompt, strokesFrom, type Asked } from './cascade';
 /** A sane opening guess, so most holes are two taps rather than four. */
 const DEFAULT_STROKES = 4;
 
-export function ScorePage({ groupId }: { groupId: UUID }) {
+/**
+ * Where "back" goes and what it's called. Defaults to the tournament this group
+ * belongs to; a fun round passes its own page instead, since the same scoring
+ * screen serves both.
+ */
+type BackTo = { to: string; label: string };
+
+export function ScorePage({ groupId, backTo }: { groupId: UUID; backTo?: BackTo }) {
   const group = useQuery({
     queryKey: ['group', groupId],
     queryFn: () => api.get<Group>(`/groups/${groupId}`),
@@ -34,7 +41,7 @@ export function ScorePage({ groupId }: { groupId: UUID }) {
   if (group.isPending || round.isPending) return <Loading what="Loading your group" />;
   if (group.error || round.error)
     return (
-      <Page title="Scores" back={{ to: '/', label: 'Tournaments' }}>
+      <Page title="Scores" back={backTo ?? { to: '/', label: 'Home' }}>
         <ErrorNote error={group.error ?? round.error} />
       </Page>
     );
@@ -45,6 +52,7 @@ export function ScorePage({ groupId }: { groupId: UUID }) {
       round={round.data!}
       played={card.data?.holes ?? []}
       loading={card.isPending}
+      backTo={backTo}
     />
   );
 }
@@ -54,11 +62,13 @@ function ScoreCard({
   round,
   played,
   loading,
+  backTo,
 }: {
   group: Group;
   round: Round & { groups: Group[] };
   played: HoleResult[];
   loading: boolean;
+  backTo?: BackTo;
 }) {
   const tournamentId = round.tournament_id;
   const field = useQuery({
@@ -84,7 +94,7 @@ function ScoreCard({
   return (
     <Page
       title={`Group ${group.group_number}`}
-      back={{ to: `/t/${tournamentId}`, label: 'Tournament' }}
+      back={backTo ?? { to: `/t/${tournamentId}`, label: 'Tournament' }}
     >
       <nav className="hole-tabs" aria-label="Holes in this loop">
         {loop.map((hole, index) => (

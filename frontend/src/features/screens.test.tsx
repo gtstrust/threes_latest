@@ -41,10 +41,12 @@ const { HomePage } = await import('./tournaments/HomePage');
 const { TournamentPage } = await import('./tournaments/TournamentPage');
 const { NewTournamentPage } = await import('./tournaments/NewTournamentPage');
 const { LeaderboardPage } = await import('./leaderboard/LeaderboardPage');
+const { FunRoundPage } = await import('./fun-rounds/FunRoundPage');
 const { SessionContext } = await import('./auth/session-context');
 
 const PLAYER_ID = 'player-kim';
 const T = 'tournament-1';
+const FR = 'fun-round-1';
 
 const TOURNAMENT = {
   id: T,
@@ -83,6 +85,30 @@ const ROUTES: Record<string, unknown> = {
         holes: [{ hole_id: 'h1', sequence: 1 }],
       },
     ],
+  },
+  '/fun-rounds': [
+    {
+      id: FR,
+      name: 'Saturday nine',
+      host_id: PLAYER_ID,
+      course_id: 'course-1',
+      status: 'lobby',
+      created_at: '',
+      updated_at: '',
+    },
+  ],
+  [`/fun-rounds/${FR}`]: {
+    id: FR,
+    name: 'Saturday nine',
+    host_id: PLAYER_ID,
+    course_id: 'course-1',
+    status: 'lobby',
+    created_at: '',
+    updated_at: '',
+    participants: [
+      { id: 'fp-kim', tournament_id: FR, player_id: PLAYER_ID, display_name: 'Kim', is_virtual: false },
+    ],
+    round: null,
   },
   '/courses': [{ id: 'course-1', name: 'Royal Melbourne' }],
   '/courses/course-1': {
@@ -180,6 +206,24 @@ describe('screens render', () => {
 
     expect(await screen.findByLabelText(/tournament name/i)).toBeInTheDocument();
     expect(await screen.findByRole('option', { name: 'Royal Melbourne' })).toBeInTheDocument();
+  });
+
+  it('home offers fun rounds alongside tournaments', async () => {
+    show(<HomePage />);
+
+    expect(await screen.findByText('Fun rounds')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /start a fun round/i })).toBeInTheDocument();
+    expect(await screen.findByText('Saturday nine')).toBeInTheDocument();
+  });
+
+  it('a fun round lobby shows the field, an invite and a start control', async () => {
+    show(<FunRoundPage funRoundId={FR} />);
+
+    expect(await screen.findByText('Saturday nine')).toBeInTheDocument();
+    expect(screen.getByText(/invite your mates/i)).toBeInTheDocument();
+    expect(await screen.findByText('Kim')).toBeInTheDocument();
+    // Host, course set, so the round can be started.
+    expect(screen.getByRole('button', { name: /start the round/i })).toBeInTheDocument();
   });
 
   it('the leaderboard shows positions, points and who is still out', async () => {

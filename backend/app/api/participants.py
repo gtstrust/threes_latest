@@ -6,6 +6,7 @@ from app.core.deps import (
     CurrentUserDep,
     ParticipantServiceDep,
     TournamentServiceDep,
+    reject_fun_round,
     require_organiser,
 )
 from app.models.participant import TournamentParticipant
@@ -53,6 +54,7 @@ async def register_self(
     any authenticated player may join while registration is open.
     """
     tournament = await _tournament_or_404(tournament_id, tournaments)
+    reject_fun_round(tournament)
     try:
         participant = await participants.self_register(
             tournament, current_user, payload.display_name
@@ -77,6 +79,7 @@ async def add_virtual_player(
 ) -> ParticipantRead:
     """Add a player who has no account, scored by someone else in their group."""
     tournament = await _tournament_or_404(tournament_id, tournaments)
+    reject_fun_round(tournament)
     require_organiser(tournament, current_user)
     try:
         participant = await participants.add_virtual_player(tournament, payload.display_name)
@@ -122,6 +125,7 @@ async def remove_participant(
     draw with no way to take them out.
     """
     tournament = await _tournament_or_404(tournament_id, tournaments)
+    reject_fun_round(tournament)
     require_organiser(tournament, current_user)
     participant = await _participant_or_404(tournament, participant_id, participants)
     try:

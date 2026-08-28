@@ -6,6 +6,7 @@ from app.core.deps import (
     CurrentUserDep,
     ParticipantServiceDep,
     TournamentServiceDep,
+    reject_fun_round,
     require_can_view,
     require_organiser,
 )
@@ -78,6 +79,7 @@ async def update_tournament(
     service: TournamentServiceDep,
 ) -> TournamentRead:
     tournament = await _get_or_404(tournament_id, service)
+    reject_fun_round(tournament)
     require_organiser(tournament, current_user)
     updated = await service.update_details(tournament, updates)
     return TournamentRead.model_validate(updated)
@@ -101,6 +103,7 @@ async def change_tournament_status(
     well-formed, it just conflicts with the tournament's current state.
     """
     tournament = await _get_or_404(tournament_id, service)
+    reject_fun_round(tournament)
     require_organiser(tournament, current_user)
     try:
         updated = await service.transition(tournament, payload.status)
