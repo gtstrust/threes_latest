@@ -11,7 +11,8 @@ import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { Card, ErrorNote, Loading, Page } from '../../components/ui';
-import { useCourses, useCreateCourse, useCreateTournament, useUpsertHoles } from '../../lib/queries';
+import { useCourse, useCourses, useCreateCourse, useCreateTournament, useUpsertHoles } from '../../lib/queries';
+import { CourseHolesEditor } from './CourseHolesEditor';
 
 /** A 3-hole loop is the format, so anything playable is a multiple of three. */
 const DEFAULT_HOLES = 18;
@@ -29,6 +30,8 @@ export function NewTournamentPage() {
   const [holeCount, setHoleCount] = useState(DEFAULT_HOLES);
 
   const makingCourse = courseId === 'new';
+  const existingCourseId = courseId && !makingCourse ? courseId : undefined;
+  const selectedCourse = useCourse(existingCourseId);
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
@@ -84,6 +87,16 @@ export function NewTournamentPage() {
               ))}
               <option value="new">Add a new course…</option>
             </select>
+          )}
+
+          {existingCourseId && selectedCourse.data && (
+            // Picking a course from the dropdown doesn't guarantee it has holes
+            // yet — this is the fix for "a loop needs 3 holes; the course has
+            // only 0 hole(s) entered" when the round is later drawn.
+            <CourseHolesEditor
+              courseId={existingCourseId}
+              currentCount={selectedCourse.data.holes.length}
+            />
           )}
 
           {makingCourse && (

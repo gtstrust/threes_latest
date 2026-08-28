@@ -34,6 +34,7 @@ import { useSession } from '../auth/session-context';
 import type { Participant, Round, Tournament, UUID } from '../../lib/types';
 import { parseHoles, readableStatus } from './format';
 import { GroupList } from '../rounds/GroupList';
+import { CourseHolesEditor } from './CourseHolesEditor';
 
 /** The field is fixed once play starts, so the editing controls disappear then. */
 const FIELD_IS_EDITABLE: Tournament['status'][] = [
@@ -178,26 +179,35 @@ export function TournamentPage({ tournamentId }: { tournamentId: UUID }) {
           )}
 
           {(status === 'REGISTRATION_CLOSED' || status === 'ROUND_COMPLETE') && (
-            <>
-              <label htmlFor="holes">Holes to play (optional)</label>
-              {/* For a match inside a normal round — "7, 8, 9 are the comp".
-                  Omitted plays the whole course. A selection has to be a
-                  multiple of three, since a loop is three holes. */}
-              <input
-                id="holes"
-                inputMode="numeric"
-                value={holeText}
-                onChange={(change) => setHoleText(change.target.value)}
-                placeholder="e.g. 7, 8, 9 — leave blank for the whole course"
-              />
-              <button
-                type="button"
-                onClick={() => draw.mutate(parseHoles(holeText))}
-                disabled={draw.isPending}
-              >
-                {draw.isPending ? 'Drawing…' : `Draw round ${(rounds.data?.length ?? 0) + 1}`}
-              </button>
-            </>
+            course.data && course.data.holes.length < 3 ? (
+              // Drawing a round needs a 3-hole loop (ADR-004); a course picked
+              // before it had holes entered would otherwise fail here with
+              // "a loop needs 3 holes; the course has only N hole(s) entered".
+              // A tournament with no course at all falls through to the normal
+              // draw button below, which surfaces the backend's own message.
+              <CourseHolesEditor courseId={course.data.id} currentCount={course.data.holes.length} />
+            ) : (
+              <>
+                <label htmlFor="holes">Holes to play (optional)</label>
+                {/* For a match inside a normal round — "7, 8, 9 are the comp".
+                    Omitted plays the whole course. A selection has to be a
+                    multiple of three, since a loop is three holes. */}
+                <input
+                  id="holes"
+                  inputMode="numeric"
+                  value={holeText}
+                  onChange={(change) => setHoleText(change.target.value)}
+                  placeholder="e.g. 7, 8, 9 — leave blank for the whole course"
+                />
+                <button
+                  type="button"
+                  onClick={() => draw.mutate(parseHoles(holeText))}
+                  disabled={draw.isPending}
+                >
+                  {draw.isPending ? 'Drawing…' : `Draw round ${(rounds.data?.length ?? 0) + 1}`}
+                </button>
+              </>
+            )
           )}
 
           {status === 'ROUND_IN_PROGRESS' && current && (
