@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy import ARRAY, DateTime, ForeignKey, Integer, String
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -105,4 +105,11 @@ class Tournament(Base, TimestampMixin):
         nullable=True,
         index=True,
     )
+    # The holes chosen at setup, and the draw's default selection. A fun round's
+    # host picks their loop when they pick the course, which is earlier than the
+    # draw that consumes it, so the answer has to outlive the request that made
+    # it. NULL means nothing was chosen: the whole course. Tournaments leave it
+    # NULL and pass their selection to `draw_round` instead.
+    hole_numbers: Mapped[list[int] | None] = mapped_column(ARRAY(Integer), nullable=True)
+
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

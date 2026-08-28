@@ -16,7 +16,28 @@ from app.api import (
 from app.core.config import settings
 from app.schemas.common import HealthResponse
 
-app = FastAPI(title="Threes API")
+API_DESCRIPTION = """\
+Short-form competitive golf: 3-hole loops instead of 18-hole rounds.
+
+### Authenticating
+
+Every route but `GET /health` needs a bearer token, and **this API has no login
+endpoint**. Supabase Auth issues tokens directly to the client (magic link) and
+this server only verifies them, so there is nothing here to POST credentials to.
+
+* **In a browser** — the frontend signs in through Supabase and sends the
+  `access_token` from the session.
+* **Locally, or to use *Authorize* below** —
+  `python scripts/dev_token.py --email you@example.com` signs one with
+  `SUPABASE_JWT_SECRET`. Development only.
+
+`GET /auth/me` returns the claims a token carries without a database lookup, so
+it answers "is my token good?" separately from "do I have a profile?".
+`POST /players` is the idempotent call that creates the profile, and must be made
+once after signing in before anything else will find you.
+"""
+
+app = FastAPI(title="Threes API", description=API_DESCRIPTION)
 
 app.add_middleware(
     CORSMiddleware,

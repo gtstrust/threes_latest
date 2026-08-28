@@ -29,12 +29,24 @@ class CourseRepository:
         )
         return result.scalar_one_or_none()
 
-    async def search(self, name: str | None = None) -> Sequence[Course]:
-        query = select(Course).order_by(Course.name)
+    async def search(self, name: str | None = None) -> Sequence[tuple[Course, int]]:
+        """Courses, each with how many holes it has entered.
+
+        The count travels with the row because a course with no holes cannot be
+        played, and the only place that is discoverable in time is the list you
+        pick from. An outer join so a hole-less course still appears — it is
+        precisely the one worth showing, marked as such.
+        """
+        query = (
+            select(Course, func.count(Hole.id))
+            .outerjoin(Hole, Hole.course_id == Course.id)
+            .group_by(Course.id)
+            .order_by(Course.name)
+        )
         if name:
             query = query.where(Course.name.ilike(f"%{name.strip()}%"))
         result = await self._session.execute(query)
-        return result.scalars().all()
+        return [(course, count) for course, count in result.all()]
 
     async def create(self, created_by: UUID, payload: CourseCreate) -> Course:
         course = Course(

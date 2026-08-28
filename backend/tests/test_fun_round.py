@@ -182,3 +182,139 @@ async def test_missing_fun_round_is_404(client, make_token):
     host = await player(client, make_token, "host@example.com")
     read = await client.get(f"/fun-rounds/{uuid.uuid4()}", headers=host)
     assert read.status_code == 404
+
+
+# --- The invite link --------------------------------------------------------
+
+
+async def test_a_stranger_can_preview_a_round_they_were_sent_the_link_to(client, make_token):
+    """The link is the invite, so it has to be legible before you're in the field."""
+    host = await player(client, make_token, "host@example.com")
+    detail = await _fun_round(client, host)
+
+    mate = await player(client, make_token, "mate@example.com")
+    preview = await client.get(f"/fun-rounds/{detail['id']}/preview", headers=mate)
+
+    assert preview.status_code == 200, preview.text
+    body = preview.json()
+    assert body["name"] == "Saturday nine"
+    assert body["player_count"] == 1
+    assert body["is_full"] is False
+    assert body["status"] == "lobby"
+
+
+async def test_the_preview_says_nothing_about_who_is_playing(client, make_token):
+    """Enough to recognise the round; the field itself stays behind the guard."""
+    host = await player(client, make_token, "host@example.com")
+    detail = await _fun_round(client, host)
+    await _add_virtual(client, host, detail["id"], "Mate")
+
+    mate = await player(client, make_token, "mate@example.com")
+    preview = await client.get(f"/fun-rounds/{detail['id']}/preview", headers=mate)
+
+    assert "participants" not in preview.json()
+    assert "round" not in preview.json()
+
+
+async def test_the_full_read_is_still_players_only(client, make_token):
+    host = await player(client, make_token, "host@example.com")
+    detail = await _fun_round(client, host)
+
+    mate = await player(client, make_token, "mate@example.com")
+    read = await client.get(f"/fun-rounds/{detail['id']}", headers=mate)
+
+    assert read.status_code == 403
+    # The casual wording matters: whoever hits this tapped an invite, and being
+    # told they aren't in a tournament would be answering a different question.
+    assert "join" in read.json()["detail"].lower()
+
+    joined = await client.post(f"/fun-rounds/{detail['id']}/players", headers=mate, json={})
+    assert joined.status_code == 201, joined.text
+    assert (await client.get(f"/fun-rounds/{detail['id']}", headers=mate)).status_code == 200
+
+
+async def test_the_preview_reports_a_full_group(client, make_token):
+    host = await player(client, make_token, "host@example.com")
+    detail = await _fun_round(client, host)
+    for name in ("Mate", "Sam", "Alex"):
+        await _add_virtual(client, host, detail["id"], name)
+
+    latecomer = await player(client, make_token, "late@example.com")
+    preview = await client.get(f"/fun-rounds/{detail['id']}/preview", headers=latecomer)
+
+    assert preview.json() == {**preview.json(), "player_count": 4, "is_full": True}
+
+
+# --- Choosing the holes at setup --------------------------------------------
+
+
+async def test_the_loop_chosen_at_setup_is_the_one_drawn(client, make_token):
+    host = await player(client, make_token, "host@example.com")
+    course_id = await course(client, host, hole_count=18)
+    fun_round = await _fun_round(client, host, course_id)
+    assert fun_round["hole_numbers"] is None
+
+    created = await client.post(
+        "/fun-rounds",
+        headers=host,
+        json={"name": "Back three", "course_id": course_id, "hole_numbers": [7, 8, 9]},
+    )
+    assert created.status_code == 201, created.text
+    chosen = created.json()
+    assert chosen["hole_numbers"] == [7, 8, 9]
+
+    await _add_virtual(client, host, chosen["id"], "Mate")
+    started = await client.post(f"/fun-rounds/{chosen['id']}/start", headers=host)
+    assert started.status_code == 200, started.text
+
+    group = started.json()["round"]["groups"][0]
+    played = [hole["hole_id"] for hole in sorted(group["holes"], key=lambda h: h["sequence"])]
+    course_holes = (await client.get(f"/courses/{course_id}", headers=host)).json()["holes"]
+    numbers = {hole["id"]: hole["hole_number"] for hole in course_holes}
+    assert [numbers[hole_id] for hole_id in played] == [7, 8, 9]
+
+
+async def test_holes_that_are_not_on_the_course_are_refused_at_setup(client, make_token):
+    """Refused while the host is still on the form, not once everyone has arrived."""
+    host = await player(client, make_token, "host@example.com")
+    course_id = await course(client, host, hole_count=3)
+
+    created = await client.post(
+        "/fun-rounds",
+        headers=host,
+        json={"name": "Back three", "course_id": course_id, "hole_numbers": [7, 8, 9]},
+    )
+
+    assert created.status_code == 409
+    assert "[7, 8, 9]" in created.json()["detail"]
+
+
+async def test_a_selection_has_to_be_one_whole_loop(client, make_token):
+    host = await player(client, make_token, "host@example.com")
+    course_id = await course(client, host, hole_count=18)
+
+    created = await client.post(
+        "/fun-rounds",
+        headers=host,
+        json={"name": "Two holes", "course_id": course_id, "hole_numbers": [7, 8]},
+    )
+
+    assert created.status_code == 422
+
+
+async def test_start_says_what_to_do_about_a_course_with_no_holes(client, make_token):
+    """The old answer came from the pure engine and told the host nothing useful."""
+    host = await player(client, make_token, "host@example.com")
+    course_id = await course(client, host, hole_count=0)
+    fun_round = await _fun_round(client, host, course_id)
+    await _add_virtual(client, host, fun_round["id"], "Mate")
+
+    started = await client.post(f"/fun-rounds/{fun_round['id']}/start", headers=host)
+
+    assert started.status_code == 409
+    assert "Add its holes" in started.json()["detail"]
+
+    # And the refusal left the round where it was, rather than closing joining on
+    # the way to a draw that could never happen.
+    read = await client.get(f"/fun-rounds/{fun_round['id']}", headers=host)
+    assert read.json()["status"] == "lobby"

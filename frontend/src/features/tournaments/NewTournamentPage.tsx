@@ -20,15 +20,23 @@ export function NewTournamentPage() {
   const createTournament = useCreateTournament();
 
   const [name, setName] = useState('');
+  const [failed, setFailed] = useState<unknown>(null);
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
-    const chosen = await picker.resolveCourseId();
-    const tournament = await createTournament.mutateAsync({
-      name,
-      ...(chosen ? { course_id: chosen } : {}),
-    });
-    void navigate(`/t/${tournament.id}`);
+    setFailed(null);
+    try {
+      const chosen = await picker.resolveCourseId();
+      const tournament = await createTournament.mutateAsync({
+        name,
+        ...(chosen ? { course_id: chosen } : {}),
+      });
+      void navigate(`/t/${tournament.id}`);
+    } catch (error) {
+      // Without this the rejection escapes the form entirely: the tournament is
+      // not created and nothing on screen says why.
+      setFailed(error);
+    }
   }
 
   const busy = picker.busy || createTournament.isPending;
@@ -48,11 +56,11 @@ export function NewTournamentPage() {
 
           {picker.element}
 
-          <button type="submit" disabled={busy || !name}>
+          <button type="submit" disabled={busy || !name || picker.blocked}>
             {busy ? 'Creating…' : 'Create tournament'}
           </button>
         </form>
-        <ErrorNote error={picker.error ?? createTournament.error} />
+        <ErrorNote error={failed ?? picker.error ?? createTournament.error} />
       </Card>
     </Page>
   );

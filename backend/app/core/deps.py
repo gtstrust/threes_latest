@@ -19,7 +19,19 @@ from app.services.round import RoundService
 from app.services.score_entry import ScoreEntryService
 from app.services.tournament import TournamentService
 
-_bearer_scheme = HTTPBearer()
+# The description is what Swagger shows inside its Authorize dialog, which is
+# where someone reading /docs actually asks this question — and the honest answer
+# is unusual enough to be worth putting there: there is no login endpoint on this
+# API to call, because Supabase issues tokens straight to the client.
+_bearer_scheme = HTTPBearer(
+    description=(
+        "A Supabase access token. This API never sees a password and has no login "
+        "endpoint — sign in through Supabase Auth (magic link) and send the "
+        "access_token it returns. GET /auth/me verifies one without touching the "
+        "database, so it is the quickest check that a token works. For local work, "
+        "mint one with `python scripts/dev_token.py --email you@example.com`."
+    )
+)
 
 
 async def get_current_user(

@@ -84,11 +84,17 @@ class TournamentService:
         organiser: CurrentUser,
         payload: TournamentCreate,
         kind: TournamentKind = TournamentKind.TOURNAMENT,
+        hole_numbers: Sequence[int] | None = None,
     ) -> Tournament:
         """Create a tournament owned by `organiser`.
 
         `kind` distinguishes a full tournament from a casual Fun Round, which is
         stored as a tournament row and driven by `FunRoundService`.
+
+        `hole_numbers` records a hole selection made at setup, for the draw to use
+        later. A tournament leaves it unset and passes its selection to
+        `RoundService.draw_round` instead; a fun round's host chooses when they
+        choose the course, which is earlier than the draw that consumes it.
 
         Raises:
             OrganiserProfileMissing: If the user hasn't provisioned a profile.
@@ -98,7 +104,9 @@ class TournamentService:
         """
         if await self._players.get_by_id(organiser.id) is None:
             raise OrganiserProfileMissing
-        return await self._repository.create(organiser.id, payload, kind=kind)
+        return await self._repository.create(
+            organiser.id, payload, kind=kind, hole_numbers=hole_numbers
+        )
 
     async def get_by_id(self, tournament_id: UUID) -> Tournament | None:
         return await self._repository.get_by_id(tournament_id)

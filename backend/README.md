@@ -225,6 +225,32 @@ lookup). `POST /players` is the idempotent "ensure my profile exists" call —
 invoke it once right after login before calling any other `/players`
 endpoint.
 
+### Getting a token without a browser
+
+Because there is no login endpoint, `/docs`, curl and REST clients have nothing
+to sign in against. Mint one locally instead — `decode_supabase_jwt` verifies
+shared-secret tokens as a first-class path, which is also how the test suite and
+`scripts/demo_tournament.py` authenticate:
+
+```bash
+python scripts/dev_token.py --email you@example.com          # prints the token
+```
+
+Paste it into the **Authorize** box at http://localhost:8000/docs, or use it
+directly:
+
+```bash
+TOKEN=$(python scripts/dev_token.py --email you@example.com)
+curl http://localhost:8000/auth/me -H "Authorization: Bearer $TOKEN"
+curl -X POST http://localhost:8000/players -H "Authorization: Bearer $TOKEN"
+```
+
+The token proves identity, not existence — each one names a new player id, so
+`POST /players` still has to be called once before anything else will find them.
+The script refuses to run unless `ENVIRONMENT=development`, and signs with
+`SUPABASE_JWT_SECRET`, which is a locally generated random string and must never
+be set to a value from a Supabase project.
+
 ## Project Structure
 
 ```

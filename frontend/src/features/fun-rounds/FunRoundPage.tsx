@@ -16,9 +16,11 @@ import {
   useAddVirtualToFunRound,
   useFinishFunRound,
   useFunRound,
+  useFunRoundPreview,
   useJoinFunRound,
   useStartFunRound,
 } from '../../lib/queries';
+import { ApiError } from '../../lib/api';
 import { useSession } from '../auth/session-context';
 import type { FunRoundDetail, Participant, RoundWithGroups, UUID } from '../../lib/types';
 
@@ -27,6 +29,13 @@ export function FunRoundPage({ funRoundId }: { funRoundId: UUID }) {
   const { player } = useSession();
 
   if (funRound.isPending) return <Loading what="Loading the round" />;
+
+  // A 403 here is the normal way a mate arrives: they tapped the shared link and
+  // aren't in the field yet. That is an invitation, not an error — the preview is
+  // open to anyone signed in precisely so this screen can exist.
+  if (funRound.error instanceof ApiError && funRound.error.status === 403)
+    return <Invitation funRoundId={funRoundId} />;
+
   if (funRound.error || !funRound.data)
     return (
       <Page title="Fun round" back={{ to: '/', label: 'Home' }}>
@@ -44,12 +53,14 @@ export function FunRoundPage({ funRoundId }: { funRoundId: UUID }) {
       back={{ to: '/', label: 'Home' }}
       actions={<Link to={`/r/${funRoundId}/leaderboard`}>Leaderboard</Link>}
     >
-      {detail.status === 'lobby' && (
-        <Lobby detail={detail} isHost={isHost} inField={inField} />
-      )}
+      {detail.status === 'lobby' && <Lobby detail={detail} isHost={isHost} inField={inField} />}
 
       {detail.status === 'playing' && player && (
-        <Playing detail={detail} isHost={isHost} participantId={playerParticipantId(detail, player.id)} />
+        <Playing
+          detail={detail}
+          isHost={isHost}
+          participantId={playerParticipantId(detail, player.id)}
+        />
       )}
 
       {detail.status === 'finished' && (
@@ -67,6 +78,54 @@ export function FunRoundPage({ funRoundId }: { funRoundId: UUID }) {
 
 function playerParticipantId(detail: FunRoundDetail, playerId: UUID): UUID | null {
   return detail.participants.find((p) => p.player_id === playerId)?.id ?? null;
+}
+
+/**
+ * What you see when the link reaches you before the round does.
+ *
+ * Deliberately thin — the host, how many are in, and one button. Who is playing
+ * stays private until you are one of them, which is why this reads the preview
+ * rather than the round.
+ */
+function Invitation({ funRoundId }: { funRoundId: UUID }) {
+  const preview = useFunRoundPreview(funRoundId);
+  const join = useJoinFunRound(funRoundId);
+
+  if (preview.isPending) return <Loading what="Loading the invite" />;
+  if (preview.error || !preview.data)
+    return (
+      <Page title="Fun round" back={{ to: '/', label: 'Home' }}>
+        <ErrorNote error={preview.error} />
+      </Page>
+    );
+
+  const invite = preview.data;
+  const closed = invite.status !== 'lobby';
+
+  return (
+    <Page title={invite.name} back={{ to: '/', label: 'Home' }}>
+      <Card>
+        <h2>You&rsquo;re invited</h2>
+        <p className="muted">
+          {invite.host_name} is playing a fun round — {invite.player_count} in so far.
+        </p>
+        {closed ? (
+          <p className="muted small">
+            {invite.status === 'playing'
+              ? 'They’ve already teed off, so joining is closed.'
+              : 'This round has finished.'}
+          </p>
+        ) : invite.is_full ? (
+          <p className="muted small">The group is full — a fun round is up to four players.</p>
+        ) : (
+          <button type="button" onClick={() => join.mutate()} disabled={join.isPending}>
+            {join.isPending ? 'Joining…' : "I'm in"}
+          </button>
+        )}
+        <ErrorNote error={join.error} />
+      </Card>
+    </Page>
+  );
 }
 
 function Lobby({
@@ -105,7 +164,10 @@ function Lobby({
           {detail.course_id ? (
             <>
               <p className="muted small">
-                Tees off the whole group over one 3-hole loop. You need at least two players.
+                {detail.hole_numbers
+                  ? `Playing holes ${detail.hole_numbers.join(', ')}.`
+                  : 'Playing the first three holes of the course.'}{' '}
+                Tees off the whole group at once. You need at least two players.
               </p>
               <button
                 type="button"
@@ -143,7 +205,12 @@ function Playing({
   return (
     <>
       {round && participantId && (
-        <MyGroup round={round} participantId={participantId} field={detail.participants} funRoundId={detail.id} />
+        <MyGroup
+          round={round}
+          participantId={participantId}
+          field={detail.participants}
+          funRoundId={detail.id}
+        />
       )}
 
       <Card>
@@ -221,7 +288,9 @@ function ShareCard({ funRoundId }: { funRoundId: UUID }) {
   return (
     <Card>
       <h2>Invite your mates</h2>
-      <p className="muted small">Send them this link — they tap it, sign in, and they&rsquo;re in.</p>
+      <p className="muted small">
+        Send them this link — they tap it, sign in, and they&rsquo;re in.
+      </p>
       <button type="button" onClick={() => void copy()}>
         {copied ? 'Copied ✓' : 'Copy join link'}
       </button>

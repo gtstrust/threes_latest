@@ -6,19 +6,25 @@ from app.core.deps import (
     CurrentUserDep,
     FunRoundServiceDep,
     ParticipantServiceDep,
-    require_can_view,
+    PlayerServiceDep,
     require_organiser,
 )
 from app.models.tournament import Tournament
 from app.schemas.fun_round import (
     FunRoundCreate,
     FunRoundDetail,
+    FunRoundPreview,
     FunRoundRead,
     FunRoundStart,
 )
 from app.schemas.participant import ParticipantRead, SelfRegister, VirtualPlayerCreate
 from app.schemas.round import RoundWithGroups
-from app.services.fun_round import FunRoundFull, FunRoundNotStartable, FunRoundNotStarted
+from app.services.fun_round import (
+    FunRoundFull,
+    FunRoundHolesUnavailable,
+    FunRoundNotStartable,
+    FunRoundNotStarted,
+)
 from app.services.participant import (
     AlreadyRegistered,
     FieldLocked,
@@ -62,6 +68,8 @@ async def create_fun_round(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No profile yet — call POST /players first",
         ) from None
+    except FunRoundHolesUnavailable as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return await _detail(fun_round, service)
 
 
@@ -81,9 +89,48 @@ async def read_fun_round(
     service: FunRoundServiceDep,
     participants: ParticipantServiceDep,
 ) -> FunRoundDetail:
+    """The whole round — its field and, once started, its group. Players only.
+
+    `require_can_view` is not reused here only because its wording is a
+    tournament's, and the person most likely to meet this 403 is a mate who has
+    just tapped an invite. They get sent to the preview instead of being told they
+    aren't in a tournament they never heard of.
+    """
     fun_round = await _fun_round_or_404(fun_round_id, service)
-    await require_can_view(fun_round, current_user, participants)
+    if fun_round.organiser_id != current_user.id and (
+        await participants.get_for_player(fun_round.id, current_user.id) is None
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You're not in this round yet — join it first",
+        )
     return await _detail(fun_round, service)
+
+
+@router.get("/{fun_round_id}/preview", response_model=FunRoundPreview)
+async def preview_fun_round(
+    fun_round_id: UUID,
+    current_user: CurrentUserDep,
+    service: FunRoundServiceDep,
+    players: PlayerServiceDep,
+) -> FunRoundPreview:
+    """Enough to recognise an invite and decide to join. Any signed-in caller.
+
+    A fun round is invited by sharing its URL, so this one route is deliberately
+    not view-guarded — guarding it would refuse exactly the people the link was
+    sent to. It is safe to open because it carries nothing worth guarding: no
+    field, no draw, no scores. That is the same trade ADR-010 makes for public
+    channels, where a guessed topic reveals only that somebody scored.
+    """
+    fun_round = await _fun_round_or_404(fun_round_id, service)
+    field = await service.list_field(fun_round)
+    host = await players.get_by_id(fun_round.organiser_id)
+    return FunRoundPreview.build(
+        fun_round,
+        host_name=(host.display_name or host.email) if host else "Someone",
+        player_count=len(field),
+        is_full=await service.is_full(fun_round),
+    )
 
 
 @router.post(
@@ -140,7 +187,12 @@ async def start_fun_round(
     require_organiser(fun_round, current_user)
     try:
         await service.start(fun_round, payload.hole_numbers if payload else None)
-    except (FunRoundNotStartable, RoundNotDrawable, DrawNotPossible) as exc:
+    except (
+        FunRoundNotStartable,
+        FunRoundHolesUnavailable,
+        RoundNotDrawable,
+        DrawNotPossible,
+    ) as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return await _detail(fun_round, service)
 

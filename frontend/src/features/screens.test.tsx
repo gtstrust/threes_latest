@@ -12,6 +12,7 @@
 import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
 import type { SessionState } from './auth/session-context';
@@ -42,11 +43,15 @@ const { TournamentPage } = await import('./tournaments/TournamentPage');
 const { NewTournamentPage } = await import('./tournaments/NewTournamentPage');
 const { LeaderboardPage } = await import('./leaderboard/LeaderboardPage');
 const { FunRoundPage } = await import('./fun-rounds/FunRoundPage');
+const { NewFunRoundPage } = await import('./fun-rounds/NewFunRoundPage');
+const { ApiError } = await import('../lib/api');
 const { SessionContext } = await import('./auth/session-context');
 
 const PLAYER_ID = 'player-kim';
 const T = 'tournament-1';
 const FR = 'fun-round-1';
+/** A round the signed-in player was sent the link to but is not yet in. */
+const STRANGERS = 'fun-round-2';
 
 const TOURNAMENT = {
   id: T,
@@ -92,6 +97,7 @@ const ROUTES: Record<string, unknown> = {
       name: 'Saturday nine',
       host_id: PLAYER_ID,
       course_id: 'course-1',
+      hole_numbers: [4, 5, 6],
       status: 'lobby',
       created_at: '',
       updated_at: '',
@@ -102,19 +108,48 @@ const ROUTES: Record<string, unknown> = {
     name: 'Saturday nine',
     host_id: PLAYER_ID,
     course_id: 'course-1',
+    hole_numbers: [4, 5, 6],
     status: 'lobby',
     created_at: '',
     updated_at: '',
     participants: [
-      { id: 'fp-kim', tournament_id: FR, player_id: PLAYER_ID, display_name: 'Kim', is_virtual: false },
+      {
+        id: 'fp-kim',
+        tournament_id: FR,
+        player_id: PLAYER_ID,
+        display_name: 'Kim',
+        is_virtual: false,
+      },
     ],
     round: null,
   },
-  '/courses': [{ id: 'course-1', name: 'Royal Melbourne' }],
+  [`/fun-rounds/${STRANGERS}/preview`]: {
+    id: STRANGERS,
+    name: 'Sunday hit',
+    host_name: 'Alex',
+    player_count: 2,
+    is_full: false,
+    status: 'lobby',
+  },
+  '/courses': [
+    { id: 'course-1', name: 'Royal Melbourne', created_by: PLAYER_ID, hole_count: 9 },
+    // Created by this player and unplayable, which is the pair the picker has to
+    // tell apart: they can fix this one, so it must offer them the way to.
+    { id: 'course-2', name: 'Empty Links', created_by: PLAYER_ID, hole_count: 0 },
+  ],
   '/courses/course-1': {
     id: 'course-1',
     name: 'Royal Melbourne',
-    holes: [{ id: 'h1', course_id: 'course-1', hole_number: 1, par: null, stroke_index: null }],
+    created_by: PLAYER_ID,
+    // Nine holes, so the course offers three loops to choose between. The first
+    // one is what the group card below plays.
+    holes: Array.from({ length: 9 }, (_, index) => ({
+      id: index === 0 ? 'h1' : `h${index + 1}`,
+      course_id: 'course-1',
+      hole_number: index + 1,
+      par: null,
+      stroke_index: null,
+    })),
   },
   [`/tournaments/${T}/leaderboard`]: {
     tournament_id: T,
@@ -154,7 +189,13 @@ beforeEach(() => {
 function show(ui: ReactNode) {
   const session: SessionState = {
     session: { access_token: 't' } as never,
-    player: { id: PLAYER_ID, email: 'kim@example.com', display_name: 'Kim', created_at: '', updated_at: '' },
+    player: {
+      id: PLAYER_ID,
+      email: 'kim@example.com',
+      display_name: 'Kim',
+      created_at: '',
+      updated_at: '',
+    },
     loading: false,
     error: null,
     retryProfile: vi.fn(),
@@ -205,7 +246,7 @@ describe('screens render', () => {
     show(<NewTournamentPage />);
 
     expect(await screen.findByLabelText(/tournament name/i)).toBeInTheDocument();
-    expect(await screen.findByRole('option', { name: 'Royal Melbourne' })).toBeInTheDocument();
+    expect(await screen.findByRole('option', { name: /Royal Melbourne/ })).toBeInTheDocument();
   });
 
   it('home offers fun rounds alongside tournaments', async () => {
@@ -224,6 +265,64 @@ describe('screens render', () => {
     expect(await screen.findByText('Kim')).toBeInTheDocument();
     // Host, course set, so the round can be started.
     expect(screen.getByRole('button', { name: /start the round/i })).toBeInTheDocument();
+  });
+
+  it('an invite link you are not in yet offers a way in, not an error', async () => {
+    // The 403 is how a mate arrives: they tapped the shared link. Showing them
+    // the refusal instead of the invitation is the bug this covers.
+    get.mockImplementation((path: string) => {
+      if (path === `/fun-rounds/${STRANGERS}`)
+        return Promise.reject(new ApiError(403, "You're not in this round yet — join it first"));
+      return path in ROUTES
+        ? Promise.resolve(ROUTES[path])
+        : Promise.reject(new Error(`unexpected GET ${path}`));
+    });
+
+    show(<FunRoundPage funRoundId={STRANGERS} />);
+
+    expect(await screen.findByText(/you.re invited/i)).toBeInTheDocument();
+    expect(screen.getByText(/Alex is playing a fun round/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /i'm in/i })).toBeInTheDocument();
+    // The field itself is not on an invite — you learn who is playing by joining.
+    expect(screen.queryByText('Kim')).not.toBeInTheDocument();
+  });
+
+  it('the lobby says which three holes are being played', async () => {
+    show(<FunRoundPage funRoundId={FR} />);
+
+    expect(await screen.findByText(/Playing holes 4, 5, 6/)).toBeInTheDocument();
+  });
+
+  it('the course list says how many holes each course has', async () => {
+    show(<NewFunRoundPage />);
+
+    expect(
+      await screen.findByRole('option', { name: /Royal Melbourne — 9 holes/ }),
+    ).toBeInTheDocument();
+    // The unplayable one is listed rather than hidden — it is the one worth
+    // seeing, since whoever created it can fix it right here.
+    expect(screen.getByRole('option', { name: /Empty Links — no holes/ })).toBeInTheDocument();
+  });
+
+  it('offers to fill in the holes of a course you created but never set up', async () => {
+    const user = userEvent.setup();
+    show(<NewFunRoundPage />);
+
+    await user.selectOptions(await screen.findByLabelText(/course/i), 'course-2');
+
+    expect(await screen.findByText(/has no holes entered yet/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/holes on the course/i)).toBeInTheDocument();
+  });
+
+  it('lets the host pick which loop to play once the course has more than three holes', async () => {
+    const user = userEvent.setup();
+    show(<NewFunRoundPage />);
+
+    await user.selectOptions(await screen.findByLabelText(/course/i), 'course-1');
+
+    const loop = await screen.findByLabelText(/which three holes/i);
+    expect(loop).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Holes 7, 8, 9' })).toBeInTheDocument();
   });
 
   it('the leaderboard shows positions, points and who is still out', async () => {

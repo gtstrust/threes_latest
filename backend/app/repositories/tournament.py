@@ -53,6 +53,7 @@ class TournamentRepository:
         organiser_id: UUID,
         payload: TournamentCreate,
         kind: TournamentKind = TournamentKind.TOURNAMENT,
+        hole_numbers: Sequence[int] | None = None,
     ) -> Tournament:
         tournament = Tournament(
             organiser_id=organiser_id,
@@ -60,6 +61,7 @@ class TournamentRepository:
             kind=kind,
             format=payload.format,
             course_id=payload.course_id,
+            hole_numbers=list(hole_numbers) if hole_numbers is not None else None,
             scheduled_at=payload.scheduled_at,
             status=TournamentStatus.CREATED,
         )
