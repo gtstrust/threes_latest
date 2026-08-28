@@ -225,6 +225,27 @@ lookup). `POST /players` is the idempotent "ensure my profile exists" call —
 invoke it once right after login before calling any other `/players`
 endpoint.
 
+### Getting a token to test with
+
+There is no login endpoint here to call, so `/auth/me` can't be where a token
+comes from — it requires one already. Against a real Supabase project, get one
+the normal way: complete magic-link login from a client and read the JWT it
+receives.
+
+Without a real project (e.g. the local Docker quick start above), mint one
+yourself — `decode_supabase_jwt` also accepts a token signed with the server's
+own `SUPABASE_JWT_SECRET` (HS256), which is exactly what the test suite and
+`scripts/demo_tournament.py` already do:
+
+```bash
+python scripts/mint_token.py you@example.com
+```
+
+Paste the output into `curl`, httpie, or the "Authorize" button at
+http://localhost:8000/docs. It reads `SUPABASE_JWT_SECRET` the same way
+`demo_tournament.py` does — `--jwt-secret`, else the environment, else
+`backend/.env` — so it always matches whatever the running server is using.
+
 ## Project Structure
 
 ```
