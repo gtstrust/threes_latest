@@ -184,21 +184,21 @@ Three is the format, so the draw makes groups of 3 wherever it can. The other tw
 
 Nothing in the scoring engine changed with it: `score_hole` takes a mapping of any size, and ADR-007's cascade is defined over "the players tied on strokes" without reference to how many there are. The cost is that a fourball has a slightly lower chance of an outright stroke winner than a three, so tie-breaks are asked marginally more often.
 
-### ADR-005: Offline-resilient score entry — Phase 2
-Deferred from MVP (see `THREES_STRATEGY.md` §2). MVP score submission is online-only with retry-on-failure and a connectivity warning; no local persistence. Phase 2 revisits this only if pilot feedback shows on-course connectivity is actually a problem: pending submissions would be queued in IndexedDB, synced when connectivity returns, shown with a "pending" indicator, and the server would resolve conflicts (last-write-wins with timestamp). The service worker deliberately does **not** cache API responses today — a stale leaderboard served silently is worse than an honest error, because a player would trust a board that had stopped moving.
+### ADR-005: Offline-resilient score entry — Phase 3
+Deferred from MVP (see `THREES_STRATEGY.md` §2). MVP score submission is online-only with retry-on-failure and a connectivity warning; no local persistence. Phase 3 revisits this only if pilot feedback shows on-course connectivity is actually a problem: pending submissions would be queued in IndexedDB, synced when connectivity returns, shown with a "pending" indicator, and the server would resolve conflicts (last-write-wins with timestamp). The service worker deliberately does **not** cache API responses today — a stale leaderboard served silently is worse than an honest error, because a player would trust a board that had stopped moving.
 
 ### ADR-006: Web-first for MVP
-The app targets web only for MVP — no iOS/Android builds, no app store submission. This removes Fastlane, TestFlight, and Play Store review latency from the pilot's critical path. Native builds are Phase 2, pursued once the pilot validates the format and the fee.
+The app targets web only for MVP — no iOS/Android builds, no app store submission. This removes Fastlane, TestFlight, and Play Store review latency from the pilot's critical path. Native builds are Phase 3, pursued once the pilot validates the format and the fee.
 
 **Amended: the stack is React + Vite, not Flutter.** Web-only was always the decision; what changed is what builds it. Three reasons, all specific to this app rather than general:
 
-- **Flutter's advantage was already deferred by this very ADR.** It earns its keep by giving web *and* real native from one codebase. Deciding native is Phase 2 and conditional on the pilot means paying Flutter web's costs now for a benefit deliberately not collected yet.
+- **Flutter's advantage was already deferred by this very ADR.** It earns its keep by giving web *and* real native from one codebase. Deciding native is Phase 3 and conditional on the pilot means paying Flutter web's costs now for a benefit deliberately not collected yet.
 - **Flutter web's weaknesses land on the critical path.** CanvasKit ships ~1.5–2MB before first paint and paints text to canvas — no find-in-page, weak accessibility, poor form autofill. The critical path here is a player opening a magic link on 4G, on a course, typing an email into a login field. Measured: the whole React app, including `supabase-js`, is **136 kB gzipped**.
 - **This project is on Supabase's newest auth surface** — ES256 via JWKS and `sb_publishable_` keys. `supabase-js` receives these first; `supabase_flutter` trails. That is the one part of the client which cannot route through FastAPI, so being on the well-trodden path there matters more than anywhere else.
 
 Native is kept open through the **PWA**, not through the framework: the app installs to a home screen, full-screen, with no store review. If the pilot shows store presence is genuinely wanted, Capacitor wraps the same bundle without a rewrite. That keeps this ADR's original bet intact — the pilot decides whether native is worth it, and nothing is paid for it beforehand.
 
-The cost, accepted: if Threes later wants genuinely native apps with native feel, Flutter or React Native means writing the UI a second time. That is a Phase 2 problem, and it is smaller than shipping a slow pilot.
+The cost, accepted: if Threes later wants genuinely native apps with native feel, Flutter or React Native means writing the UI a second time. That is a Phase 3 problem, and it is smaller than shipping a slow pilot.
 
 ### ADR-008: Play statuses are owned by the round endpoints
 `ROUND_IN_PROGRESS` and `ROUND_COMPLETE` cannot be set through `POST /tournaments/{id}/status`. Drawing a round and starting play are one action (`POST /tournaments/{id}/rounds`), as are finishing a round and ending it (`POST /rounds/{round_id}/complete`).
@@ -226,7 +226,7 @@ Because the tie-breaks are scoped to the players they concern, "no winner" is un
 
 The overall leaderboard breaks level players on **fewest total strokes across the loop**. This deliberately replaces countback on the hardest-ranked hole, which would have required the organiser to enter a difficulty ranking for every hole at setup.
 
-**Forward compatibility with handicaps (Phase 2):** because the client submits only raw strokes (ADR-002) and points are always derived server-side, net scoring can be layered on later without changing the score-entry path or re-migrating stored scores.
+**Forward compatibility with handicaps (Phase 3):** because the client submits only raw strokes (ADR-002) and points are always derived server-side, net scoring can be layered on later without changing the score-entry path or re-migrating stored scores.
 
 ### ADR-009: Scores are stored in two tables — reported and derived
 A scored hole is written to **two** tables. `hole_scores` is what the players reported: one row per participant, holding their strokes and the points those strokes earned them. `hole_results` is what the ADR-007 cascade made of it: one row per group per hole, holding the winner, which of the three levels decided it, and the tie-break answer if one was used.
@@ -272,7 +272,7 @@ next poll instead of immediately.
 
 **Public channels, for now.** A topic is keyed by tournament UUID and the payload says nothing, so
 an eavesdropper who guessed one would learn only that somebody scored. Private channels (RLS on
-`realtime.messages`) are Phase 2, and are the reason the payload is worth keeping empty.
+`realtime.messages`) are Phase 3, and are the reason the payload is worth keeping empty.
 
 **Only score entry signals.** A new draw or a completed round also change what a client should show,
 but a client learns those on its own refresh; adding `round_drawn` / `round_complete` is two more
@@ -314,8 +314,9 @@ call sites and a second event type, and waits until the frontend shows it is nee
 ### Backend (.env)
 
 Only these are read (`app/core/config.py`; `extra="ignore"`, so anything else in `.env` is
-silently dropped rather than rejected). No `ANTHROPIC_API_KEY` or `EMAIL_FROM` — AI generation
-and email are Phase 2/3.
+silently dropped rather than rejected). No `ANTHROPIC_API_KEY` or `EMAIL_FROM` — email/reminders
+are Phase 2 (the reminders workstream pulls an outbound-mail channel forward) and AI generation is
+Phase 3.
 
 ```
 SUPABASE_URL=https://your-project.supabase.co
@@ -349,7 +350,7 @@ VITE_API_BASE_URL=http://localhost:8000
   editable only by whoever created it.
 - **Hole**: One hole of a course — `hole_number`, plus optional `par` and `stroke_index`. Both are
   optional because scoring never uses par (ADR-007 is strokes alone), so an organiser can enter
-  three hole numbers and start. `stroke_index` is present ready for Phase 2 handicaps. A course only
+  three hole numbers and start. `stroke_index` is present ready for Phase 3 handicaps. A course only
   needs the holes actually being played — a 3-hole loop needs 3, not 18.
 - **Round**: One stage of a tournament — a draw of groups all playing simultaneously. Carries its own
   status (`PENDING` / `IN_PROGRESS` / `COMPLETE`), distinct from the tournament's, because a
@@ -408,5 +409,5 @@ VITE_API_BASE_URL=http://localhost:8000
    leaderboard endpoint. See ADR-010 for why Postgres Changes was rejected.
 5. Magic link auth means no passwords are stored. Supabase Auth handles the entire flow.
 6. MVP is a **lean validation build**: web-only, no AI, no offline sync, no Fun Rounds — see `THREES_STRATEGY.md`. The MVP milestone is running one real corporate golf day, with the organiser paying the per-event fee.
-7. Phase 2 features (deferred): native iOS/Android apps, AI invitation/summary generation, offline-first sync, Fun Rounds, **handicaps / net scoring**, standalone longest-drive and closest-to-pin competitions (with their own prizes and leaderboards), social friends, gamification. Note that longest drive and closest to pin are *captured* in MVP because ADR-007 needs them to break tied holes — what's deferred is treating them as competitions in their own right.
-8. Phase 3 features (deferred): Stripe payment processing, golf club/corporate accounts, sponsors.
+7. Phase 2 — post-pilot engagement & growth (the focused next investment): completing **Fun Rounds** (the casual non-tournament flow), **invite / join-links + QR**, **player caps**, **reminders** (which pulls an outbound-email channel forward), **referrals**, and **per-player stats / history**. See `ROADMAP.md` for scope and dependencies.
+8. Phase 3 — later (everything else deferred, folded into one bucket): **handicaps / net scoring**, native iOS/Android apps, offline-first sync, AI invitation/summary generation, standalone longest-drive and closest-to-pin competitions (with their own prizes and leaderboards), social friends, gamification, realtime private channels — plus the commercial build: Stripe payment processing, golf club/corporate accounts, sponsors. Note that longest drive and closest to pin are *captured* in MVP because ADR-007 needs them to break tied holes — what's deferred is treating them as competitions in their own right.
