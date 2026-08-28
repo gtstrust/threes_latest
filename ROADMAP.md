@@ -68,7 +68,7 @@ Scoring rules are settled — see ADR-007. Holes are never halved; a hole has on
 decided by strokes → closest to the pin → longest drive on the fairway. Points are integers.
 The leaderboard breaks level players on fewest total strokes, so the organiser never has to enter
 a per-hole difficulty ranking. `stroke_index` is still on `Hole` — nullable and unused by MVP
-scoring — kept ready for Phase 2 handicaps.
+scoring — kept ready for Phase 3 handicaps.
 
 ### Frontend
 
@@ -105,26 +105,46 @@ single change needed to open it back up.
 
 ---
 
-## Phase 2 — Post-pilot
+## Phase 2 — Post-pilot engagement & growth
 
-Pursued only once the pilot validates the format and the fee.
+Pursued only once the pilot validates the format and the fee. This phase is deliberately narrow:
+the features that turn a one-off event into repeat play and word-of-mouth growth. Everything else
+deferred at MVP is now Phase 3 (below).
+
+| # | Workstream | Scope | Main dependency |
+|---|-----------|-------|-----------------|
+| 1 | **Fun Rounds — complete** | The whole casual, non-tournament flow: start a round, pick a course, invite Threes players, add non-mobile (virtual) players, enter hole scores, view the scoreboard and opponents' holes, a quick leaderboard, finish the round. | Reuses the pure engine (`services/scoring.py` `score_hole`, `services/grouping.py`) unchanged, but needs a `Round` **not** foreign-keyed to a `Tournament` — today every round is created via `RoundService.draw_round` on a tournament. That decoupling is the bulk of the work. |
+| 2 | **Invite / join-links + QR** | Organiser generates a shareable join link and QR for a tournament (and for a fun round); joining by link instead of hand-shared UUID. | A join-token endpoint on the backend; a share/QR surface on the frontend. Today joining is by knowing the tournament id. |
+| 3 | **Player caps** | An optional maximum field size per tournament, enforced at self-registration. | A `max_players` field on the tournament model/schema; a guard in `ParticipantService.self_register` (which enforces no maximum today). |
+| 4 | **Reminders** | Notify players of an upcoming event (and, later, that scoring is open). | An email/notification channel — **none exists yet** (no `EMAIL_FROM`, no outbound mail). This is the one item that pulls new infrastructure forward. |
+| 5 | **Referrals** | A referral loop so existing players bring new organisers/players. | Referral codes + attribution; overlaps with invites (#2) and the growth strategy stub. |
+| 6 | **Per-player stats / history** | A player's previous rounds and improvement tracking — by hole, by course, and overall. | A stats/aggregation read path across tournaments; today the only aggregates are the two per-tournament leaderboard sums. |
+
+## Phase 3 — Later
+
+Everything else deferred, gathered into one bucket behind the Phase 2 growth work — deeper product
+features alongside the commercial build. Pursued after Phase 2, and each planned on its own when
+picked up.
+
+**Product & platform**
 
 - **Handicaps / net scoring.** ADR-002 keeps raw strokes as the only thing the client submits and
   derives all points server-side, so net scoring can be added without changing score entry or
   re-migrating stored scores. A per-event playing handicap belongs on the participant, not the
   player, since it can differ between events.
 - Native iOS/Android builds (ADR-006)
-- Offline-first score sync — Hive-backed pending submissions, last-write-wins conflict
+- Offline-first score sync — pending submissions queued locally, last-write-wins conflict
   resolution (ADR-005). Revisited **only if** pilot feedback shows on-course connectivity is
   actually a problem.
 - AI invitation + summary generation
-- Fun Rounds
 - Standalone longest-drive and closest-to-pin **competitions** — own prizes and leaderboards. Both
   are already captured in MVP as ADR-007 tie-break inputs; what's deferred is treating them as
   contests in their own right.
 - Social friends, gamification
+- Realtime private channels (RLS on `realtime.messages`), the reason the broadcast payload is kept
+  empty (ADR-010)
 
-## Phase 3 — Commercial
+**Commercial**
 
 - Stripe payment processing (per-player entry fees, replacing manual invoicing)
 - Golf club / corporate accounts
