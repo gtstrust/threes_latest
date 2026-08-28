@@ -8,7 +8,7 @@ from app.core.db import get_db
 from app.core.security import CurrentUser, decode_supabase_jwt
 from app.models.course import Course
 from app.models.round import Group
-from app.models.tournament import Tournament
+from app.models.tournament import Tournament, TournamentStatus
 from app.services.course import CourseService
 from app.services.leaderboard import LeaderboardService
 from app.services.participant import ParticipantService
@@ -123,12 +123,24 @@ async def require_can_view(
     current_user: CurrentUser,
     participants: ParticipantService,
 ) -> None:
-    """Guard reading a tournament: the organiser, or anyone in the field.
+    """Guard reading a tournament: the organiser, anyone in the field, or —
+    while registration is open — any authenticated player.
+
+    That last case is what makes the invitation link actually work: knowing the
+    tournament id is the invitation (see `register_self`), and self-registration
+    is open to any authenticated player during `REGISTRATION_OPEN`. Gating the
+    read the same way the write already is means a brand-new invitee can load the
+    tournament and see the Join button instead of being 403'd before they can act
+    on the very link that was sent to let them join. No round can exist yet in
+    this state (ADR-008), so nothing scored or drawn is exposed by it.
 
     Async because unlike the other guards this can't be answered from the
     tournament row alone — it has to look for the caller's place in the field.
     """
     if tournament.organiser_id == current_user.id:
+        return
+
+    if tournament.status == TournamentStatus.REGISTRATION_OPEN:
         return
 
     if await participants.get_for_player(tournament.id, current_user.id) is not None:

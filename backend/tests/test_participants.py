@@ -358,9 +358,10 @@ async def test_a_participant_of_another_tournament_is_not_found_here(client, mak
 
 
 @pytest.mark.asyncio
-async def test_a_registered_player_can_now_read_the_tournament(client, make_token):
-    """Before participants existed, require_can_view was organiser-only, so an
-    invited player couldn't read the event they'd been invited to."""
+async def test_an_invited_player_can_read_the_tournament_before_joining(client, make_token):
+    """The invitation link carries only the tournament id (see `register_self`), so
+    a brand-new invitee has to be able to load the tournament — and see the Join
+    button — before they've registered, not just after."""
     organiser = await _player(client, make_token, "organiser@example.com")
     tournament_id = await _tournament(client, organiser)
     await _open_registration(client, organiser, tournament_id)
@@ -370,15 +371,36 @@ async def test_a_registered_player_can_now_read_the_tournament(client, make_toke
     await client.post(f"/tournaments/{tournament_id}/participants", headers=player, json={})
     after = await client.get(f"/tournaments/{tournament_id}", headers=player)
 
-    assert before.status_code == 403
+    assert before.status_code == 200
     assert after.status_code == 200
 
 
 @pytest.mark.asyncio
-async def test_a_stranger_still_cannot_read_the_tournament(client, make_token):
+async def test_a_stranger_cannot_read_the_tournament_before_registration_opens(client, make_token):
     organiser = await _player(client, make_token, "organiser@example.com")
     tournament_id = await _tournament(client, organiser)
     stranger = await _player(client, make_token, "stranger@example.com")
+
+    response = await client.get(f"/tournaments/{tournament_id}", headers=stranger)
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_a_stranger_who_never_joined_loses_access_once_registration_closes(
+    client, make_token
+):
+    """The open-to-anyone read during REGISTRATION_OPEN exists so an invitee can see
+    the Join button; someone who never used it shouldn't retain access forever."""
+    organiser = await _player(client, make_token, "organiser@example.com")
+    tournament_id = await _tournament(client, organiser)
+    await _open_registration(client, organiser, tournament_id)
+    stranger = await _player(client, make_token, "stranger@example.com")
+    assert (
+        await client.get(f"/tournaments/{tournament_id}", headers=stranger)
+    ).status_code == 200
+
+    await _set_status(client, organiser, tournament_id, TournamentStatus.REGISTRATION_CLOSED)
 
     response = await client.get(f"/tournaments/{tournament_id}", headers=stranger)
 
