@@ -45,10 +45,12 @@ const { LeaderboardPage } = await import('./leaderboard/LeaderboardPage');
 const { FunRoundPage } = await import('./fun-rounds/FunRoundPage');
 const { NewFunRoundPage } = await import('./fun-rounds/NewFunRoundPage');
 const { ApiError } = await import('../lib/api');
+const { JoinPage } = await import('./join/JoinPage');
 const { SessionContext } = await import('./auth/session-context');
 
 const PLAYER_ID = 'player-kim';
 const T = 'tournament-1';
+const CODE = 'THR-8K2QF';
 const FR = 'fun-round-1';
 /** A round the signed-in player was sent the link to but is not yet in. */
 const STRANGERS = 'fun-round-2';
@@ -57,6 +59,7 @@ const TOURNAMENT = {
   id: T,
   name: 'Acme Corporate Day',
   organiser_id: PLAYER_ID,
+  join_code: CODE,
   status: 'ROUND_IN_PROGRESS',
   format: 'ROUND_ROBIN',
   course_id: 'course-1',
@@ -96,6 +99,7 @@ const ROUTES: Record<string, unknown> = {
       id: FR,
       name: 'Saturday nine',
       host_id: PLAYER_ID,
+      join_code: 'THR-QQ44M',
       course_id: 'course-1',
       hole_numbers: [4, 5, 6],
       status: 'lobby',
@@ -107,6 +111,7 @@ const ROUTES: Record<string, unknown> = {
     id: FR,
     name: 'Saturday nine',
     host_id: PLAYER_ID,
+    join_code: 'THR-QQ44M',
     course_id: 'course-1',
     hole_numbers: [4, 5, 6],
     status: 'lobby',
@@ -130,6 +135,15 @@ const ROUTES: Record<string, unknown> = {
     player_count: 2,
     is_full: false,
     status: 'lobby',
+  },
+  [`/join/${CODE}`]: {
+    kind: 'tournament',
+    id: T,
+    name: 'Acme Corporate Day',
+    host_name: 'Kim',
+    player_count: 2,
+    can_join: true,
+    status: 'REGISTRATION_OPEN',
   },
   '/courses': [
     { id: 'course-1', name: 'Royal Melbourne', created_by: PLAYER_ID, hole_count: 9 },
@@ -261,7 +275,10 @@ describe('screens render', () => {
     show(<FunRoundPage funRoundId={FR} />);
 
     expect(await screen.findByText('Saturday nine')).toBeInTheDocument();
-    expect(screen.getByText(/invite your mates/i)).toBeInTheDocument();
+    // A fun round is invited by the same short code as a tournament now, not
+    // by its UUID — everyone in the round holds it, so any of them can pull a
+    // fourth in.
+    expect(screen.getByText('THR-QQ44M')).toBeInTheDocument();
     expect(await screen.findByText('Kim')).toBeInTheDocument();
     // Host, course set, so the round can be started.
     expect(screen.getByRole('button', { name: /start the round/i })).toBeInTheDocument();
@@ -323,6 +340,65 @@ describe('screens render', () => {
     const loop = await screen.findByLabelText(/which three holes/i);
     expect(loop).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Holes 7, 8, 9' })).toBeInTheDocument();
+  });
+
+  it('a join code shows what you were invited to, and a way in', async () => {
+    show(<JoinPage code={CODE} />);
+
+    expect(await screen.findByText(/you.re invited/i)).toBeInTheDocument();
+    expect(screen.getByText(/Kim is running this event/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /i'm in/i })).toBeInTheDocument();
+    // An invitation names the event, not its field.
+    expect(screen.queryByText('Dave')).not.toBeInTheDocument();
+  });
+
+  it('a closed invitation explains itself instead of offering the button', async () => {
+    get.mockImplementation((path: string) =>
+      path === `/join/${CODE}`
+        ? Promise.resolve({ ...(ROUTES[`/join/${CODE}`] as object), can_join: false })
+        : path in ROUTES
+          ? Promise.resolve(ROUTES[path])
+          : Promise.reject(new Error(`unexpected GET ${path}`)),
+    );
+
+    show(<JoinPage code={CODE} />);
+
+    expect(await screen.findByText(/joining has closed/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /i'm in/i })).not.toBeInTheDocument();
+  });
+
+  it('the organiser gets the join code and a QR to hand out', async () => {
+    // ROUND_IN_PROGRESS is past the point of inviting, so use an event still open.
+    get.mockImplementation((path: string) =>
+      path === `/tournaments/${T}`
+        ? Promise.resolve({ ...TOURNAMENT, status: 'REGISTRATION_OPEN' })
+        : path in ROUTES
+          ? Promise.resolve(ROUTES[path])
+          : Promise.reject(new Error(`unexpected GET ${path}`)),
+    );
+
+    show(<TournamentPage tournamentId={T} />);
+
+    expect(await screen.findByText(CODE)).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: new RegExp(CODE) })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /copy join link/i })).toBeInTheDocument();
+  });
+
+  it('a tournament you are not in points you at the join link, not the guard', async () => {
+    get.mockImplementation((path: string) => {
+      if (path === `/tournaments/${T}`)
+        return Promise.reject(
+          new ApiError(403, 'Only the organiser and players in this tournament can view it'),
+        );
+      return path in ROUTES
+        ? Promise.resolve(ROUTES[path])
+        : Promise.reject(new Error(`unexpected GET ${path}`));
+    });
+
+    show(<TournamentPage tournamentId={T} />);
+
+    expect(await screen.findByText(/you.re not in this event/i)).toBeInTheDocument();
+    expect(screen.getByText(/ask the organiser for the join link/i)).toBeInTheDocument();
   });
 
   it('the leaderboard shows positions, points and who is still out', async () => {

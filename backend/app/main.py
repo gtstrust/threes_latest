@@ -6,6 +6,7 @@ from app.api import (
     courses,
     fun_rounds,
     groups,
+    join,
     leaderboard,
     participants,
     players,
@@ -54,6 +55,7 @@ app.include_router(tournaments.router)
 app.include_router(participants.router)
 app.include_router(rounds.router)
 app.include_router(fun_rounds.router)
+app.include_router(join.router)
 app.include_router(groups.router)
 app.include_router(scores.router)
 app.include_router(leaderboard.router)

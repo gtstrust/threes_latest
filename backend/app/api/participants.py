@@ -50,8 +50,10 @@ async def register_self(
 ) -> ParticipantRead:
     """Register the caller in this tournament.
 
-    Knowing the tournament id is the invitation — it arrives by magic link — so
-    any authenticated player may join while registration is open.
+    The invitation is the tournament's join code, not its id — `POST /join/{code}`
+    is the route a player actually arrives through. This one stays because it is
+    the direct form for a caller who already knows the tournament, and because the
+    join route delegates the rule it enforces (registration must be open) here.
     """
     tournament = await _tournament_or_404(tournament_id, tournaments)
     reject_fun_round(tournament)

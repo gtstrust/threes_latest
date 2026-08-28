@@ -11,6 +11,7 @@ from app.core.deps import (
     require_organiser,
 )
 from app.models.tournament import Tournament
+from app.schemas.join import JoinCodeRead
 from app.schemas.tournament import (
     TournamentCreate,
     TournamentRead,
@@ -68,7 +69,26 @@ async def read_tournament(
 ) -> TournamentRead:
     tournament = await _get_or_404(tournament_id, service)
     await require_can_view(tournament, current_user, participants)
-    return TournamentRead.model_validate(tournament)
+    return TournamentRead.for_viewer(tournament, current_user.id)
+
+
+@router.post("/{tournament_id}/join-code", response_model=JoinCodeRead)
+async def regenerate_join_code(
+    tournament_id: UUID,
+    current_user: CurrentUserDep,
+    service: TournamentServiceDep,
+) -> JoinCodeRead:
+    """Mint a new invitation, retiring the old one. Organiser only.
+
+    The reason the invitation is a code rather than the tournament's id: a QR
+    printed on a sign outlives the day it was printed for, and a link passed on
+    beyond the guest list has to be withdrawable without deleting the event.
+    """
+    tournament = await _get_or_404(tournament_id, service)
+    reject_fun_round(tournament)
+    require_organiser(tournament, current_user)
+    updated = await service.regenerate_join_code(tournament)
+    return JoinCodeRead(join_code=updated.join_code)
 
 
 @router.patch("/{tournament_id}", response_model=TournamentRead)

@@ -3,7 +3,12 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.models.tournament import SUPPORTED_FORMATS, TournamentFormat, TournamentStatus
+from app.models.tournament import (
+    SUPPORTED_FORMATS,
+    Tournament,
+    TournamentFormat,
+    TournamentStatus,
+)
 
 
 class TournamentCreate(BaseModel):
@@ -50,9 +55,25 @@ class TournamentRead(BaseModel):
     id: UUID
     name: str
     organiser_id: UUID
+    # The invitation, and **null for anyone but the organiser** — see `for_viewer`.
+    join_code: str | None = None
     status: TournamentStatus
     format: TournamentFormat
     course_id: UUID | None
     scheduled_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+    @classmethod
+    def for_viewer(cls, tournament: Tournament, viewer_id: UUID) -> "TournamentRead":
+        """The tournament as this caller may see it.
+
+        The field can already read a tournament, so returning the join code to
+        everyone would let any player invite people the organiser never chose.
+        Handing out the invitation is the organiser's job; regenerating is the
+        recovery if it spreads anyway.
+        """
+        read = cls.model_validate(tournament)
+        if tournament.organiser_id != viewer_id:
+            read.join_code = None
+        return read

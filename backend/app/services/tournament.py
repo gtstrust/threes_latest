@@ -5,9 +5,10 @@ framework dependencies so the state machine can be tested on its own. The servic
 class below is the only part that touches persistence.
 """
 
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from uuid import UUID
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import CurrentUser
@@ -15,6 +16,7 @@ from app.models.tournament import Tournament, TournamentKind, TournamentStatus
 from app.repositories.player import PlayerRepository
 from app.repositories.tournament import TournamentRepository
 from app.schemas.tournament import TournamentCreate, TournamentUpdate
+from app.services.join_code import generate_join_code, normalise_join_code
 
 # The linear path from ADR-003, plus one loop: ROUND_COMPLETE back to
 # ROUND_IN_PROGRESS, so a tournament can run more than one 3-hole round. There is
@@ -30,6 +32,12 @@ ALLOWED_TRANSITIONS: dict[TournamentStatus, frozenset[TournamentStatus]] = {
     ),
     TournamentStatus.TOURNAMENT_COMPLETE: frozenset(),
 }
+
+
+# Codes are drawn at random from a 24-million-strong space, so a collision needs
+# a retry rather than a strategy. Bounded because an unbounded loop against a
+# genuinely exhausted space is an outage that looks like a hang.
+JOIN_CODE_ATTEMPTS = 5
 
 
 def can_transition(current: TournamentStatus, target: TournamentStatus) -> bool:
@@ -76,6 +84,7 @@ class InvalidTransition(TournamentError):
 
 class TournamentService:
     def __init__(self, session: AsyncSession) -> None:
+        self._session = session
         self._repository = TournamentRepository(session)
         self._players = PlayerRepository(session)
 
@@ -104,12 +113,49 @@ class TournamentService:
         """
         if await self._players.get_by_id(organiser.id) is None:
             raise OrganiserProfileMissing
-        return await self._repository.create(
-            organiser.id, payload, kind=kind, hole_numbers=hole_numbers
+        return await self._with_fresh_code(
+            lambda code: self._repository.create(
+                organiser.id, payload, kind=kind, hole_numbers=hole_numbers, join_code=code
+            )
         )
 
     async def get_by_id(self, tournament_id: UUID) -> Tournament | None:
         return await self._repository.get_by_id(tournament_id)
+
+    async def get_by_join_code(self, code: str) -> Tournament | None:
+        """The tournament or fun round an invitation names, or None.
+
+        Normalising here rather than in the repository keeps the repository a
+        plain lookup: what counts as the same code is a rule about invitations.
+        """
+        return await self._repository.get_by_join_code(normalise_join_code(code))
+
+    async def regenerate_join_code(self, tournament: Tournament) -> Tournament:
+        """Mint a new invitation and retire the old one.
+
+        The reason the code exists rather than the id being handed out: a QR on a
+        sign outlives the event it was printed for, and a link passed on to people
+        the organiser never invited has to be revocable without deleting the day.
+        """
+        return await self._with_fresh_code(
+            lambda code: self._repository.set_join_code(tournament, code)
+        )
+
+    async def _with_fresh_code(self, write: Callable[[str], Awaitable[Tournament]]) -> Tournament:
+        """Run a write that needs an unused join code, retrying on collision.
+
+        The uniqueness check is the constraint, not a preceding SELECT: reading
+        first would still race two organisers creating events at the same moment,
+        and would cost a query on every create to prevent a one-in-millions event.
+        """
+        for attempt in range(JOIN_CODE_ATTEMPTS):
+            try:
+                async with self._session.begin_nested():
+                    return await write(generate_join_code())
+            except IntegrityError:
+                if attempt == JOIN_CODE_ATTEMPTS - 1:
+                    raise
+        raise AssertionError("unreachable: the loop either returns or raises")
 
     async def list_for_organiser(self, organiser_id: UUID) -> Sequence[Tournament]:
         return await self._repository.list_for_organiser(organiser_id)

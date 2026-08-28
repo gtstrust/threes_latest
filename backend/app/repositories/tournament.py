@@ -48,16 +48,23 @@ class TournamentRepository:
         )
         return result.scalars().all()
 
+    async def get_by_join_code(self, code: str) -> Tournament | None:
+        """Resolve an invitation. `code` must already be in its stored (upper) form."""
+        result = await self._session.execute(select(Tournament).where(Tournament.join_code == code))
+        return result.scalar_one_or_none()
+
     async def create(
         self,
         organiser_id: UUID,
         payload: TournamentCreate,
         kind: TournamentKind = TournamentKind.TOURNAMENT,
         hole_numbers: Sequence[int] | None = None,
+        join_code: str = "",
     ) -> Tournament:
         tournament = Tournament(
             organiser_id=organiser_id,
             name=payload.name,
+            join_code=join_code,
             kind=kind,
             format=payload.format,
             course_id=payload.course_id,
@@ -66,6 +73,12 @@ class TournamentRepository:
             status=TournamentStatus.CREATED,
         )
         self._session.add(tournament)
+        await self._session.flush()
+        await self._session.refresh(tournament)
+        return tournament
+
+    async def set_join_code(self, tournament: Tournament, code: str) -> Tournament:
+        tournament.join_code = code
         await self._session.flush()
         await self._session.refresh(tournament)
         return tournament

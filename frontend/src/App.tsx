@@ -11,6 +11,7 @@ import { ScorePage } from './features/scoring/ScorePage';
 import { NewFunRoundPage } from './features/fun-rounds/NewFunRoundPage';
 import { FunRoundPage } from './features/fun-rounds/FunRoundPage';
 import { FunRoundLeaderboardPage } from './features/fun-rounds/FunRoundLeaderboardPage';
+import { JoinPage } from './features/join/JoinPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -65,6 +66,11 @@ function FunRoundScoreRoute() {
   );
 }
 
+function JoinRoute() {
+  const { code } = useParams();
+  return code ? <JoinPage code={code} /> : <Navigate to="/" replace />;
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -84,6 +90,9 @@ export default function App() {
               <Route path="/r/:id" element={<FunRoundRoute />} />
               <Route path="/r/:id/leaderboard" element={<FunRoundLeaderboardRoute />} />
               <Route path="/r/:id/g/:groupId" element={<FunRoundScoreRoute />} />
+              {/* The invitation. Shorter than either event path on purpose —
+                  it gets printed on a sign and read out on a tee. */}
+              <Route path="/join/:code" element={<JoinRoute />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </RequireAuth>

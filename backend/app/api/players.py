@@ -65,7 +65,9 @@ async def list_my_tournaments(
     Virtual players never appear here. They have no account to call the API with.
     """
     playing = await tournaments.list_for_player(current_user.id)
-    return [TournamentRead.model_validate(tournament) for tournament in playing]
+    # for_viewer, not model_validate: these are events the caller plays in but
+    # mostly does not run, and the join code is the organiser's to hand out.
+    return [TournamentRead.for_viewer(tournament, current_user.id) for tournament in playing]
 
 
 @router.get("/{player_id}", response_model=PlayerRead)
