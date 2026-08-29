@@ -55,7 +55,7 @@ export function ScorecardPage({ groupId, backTo }: { groupId: UUID; backTo?: Bac
 
   if (group.error || round.error || card.error || field.error)
     return (
-      <Page title="Scorecard" back={back}>
+      <Page title="Scorecard" back={back} theme="lit">
         <ErrorNote error={group.error ?? round.error ?? card.error ?? field.error} />
       </Page>
     );
@@ -77,7 +77,7 @@ export function ScorecardPage({ groupId, backTo }: { groupId: UUID; backTo?: Bac
   }));
 
   return (
-    <Page title="Scorecard" back={back}>
+    <Page title="Scorecard" back={back} theme="lit">
       <p className="muted small">
         Group {group.data?.group_number} · {played.length} of {loop.length} holes scored
       </p>

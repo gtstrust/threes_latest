@@ -53,7 +53,7 @@ export function ScorePage({ groupId, backTo }: { groupId: UUID; backTo?: BackTo 
   if (group.isPending || round.isPending) return <Loading what="Loading your group" />;
   if (group.error || round.error)
     return (
-      <Page title="Scores" back={backTo ?? { to: '/', label: 'Home' }}>
+      <Page title="Scores" back={backTo ?? { to: '/', label: 'Home' }} theme="lit">
         <ErrorNote error={group.error ?? round.error} />
       </Page>
     );
@@ -106,6 +106,7 @@ function ScoreCard({
     <Page
       title={`Group ${group.group_number}`}
       back={backTo ?? { to: `/t/${tournamentId}`, label: 'Tournament' }}
+      theme="lit"
     >
       <nav className="hole-tabs" aria-label="Holes in this loop">
         {loop.map((hole, index) => (
