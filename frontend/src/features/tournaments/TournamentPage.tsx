@@ -13,7 +13,7 @@
  * buttons here — the draw button is the transition.
  */
 
-import { useState, type FormEvent } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Card, Empty, ErrorNote, Loading, Page } from '../../components/ui';
@@ -30,13 +30,13 @@ import {
   useSendReminder,
   useSetStatus,
   useTournament,
-  useUpdateTournament,
 } from '../../lib/queries';
 import { ApiError } from '../../lib/api';
 import { useSession } from '../auth/session-context';
 import { InviteCard } from '../invite/InviteCard';
 import type { Participant, Round, Tournament, UUID } from '../../lib/types';
 import { parseHoles, readableStatus } from './format';
+import { readableWhen } from './when';
 import { GroupList } from '../rounds/GroupList';
 
 /** The field is fixed once play starts, so the editing controls disappear then. */
@@ -106,6 +106,9 @@ export function TournamentPage({ tournamentId }: { tournamentId: UUID }) {
       <p>
         <span className="badge">{readableStatus(status)}</span>
         {course.data && <span className="muted"> · {course.data.name}</span>}
+        {readableWhen(event.scheduled_at) && (
+          <span className="muted"> · {readableWhen(event.scheduled_at)}</span>
+        )}
       </p>
 
       {(status === 'ROUND_IN_PROGRESS' ||
@@ -126,7 +129,9 @@ export function TournamentPage({ tournamentId }: { tournamentId: UUID }) {
       )}
 
       {isOrganiser && FIELD_IS_EDITABLE.includes(status) && (
-        <FieldCap tournamentId={tournamentId} current={event.max_players} />
+        <Link to={`/t/${tournamentId}/settings`} className="button-link">
+          Event settings
+        </Link>
       )}
 
       {isOrganiser && FIELD_IS_EDITABLE.includes(status) && (
@@ -284,49 +289,6 @@ export function TournamentPage({ tournamentId }: { tournamentId: UUID }) {
         </Card>
       )}
     </Page>
-  );
-}
-
-/**
- * The optional ceiling on the field.
- *
- * Only bounded from below by two, and only ever refused by the API when the
- * field has already outgrown the number — which is worth surfacing rather than
- * pre-empting, since the organiser's fix (remove someone, or pick a bigger
- * number) depends on which they meant.
- */
-function FieldCap({ tournamentId, current }: { tournamentId: UUID; current: number | null }) {
-  const update = useUpdateTournament(tournamentId);
-  const [value, setValue] = useState(current === null ? '' : String(current));
-
-  function onSubmit(submitted: FormEvent) {
-    submitted.preventDefault();
-    update.mutate({ max_players: value === '' ? null : Number(value) });
-  }
-
-  return (
-    <Card>
-      <h2>Maximum players</h2>
-      <p className="muted small">
-        Leave blank for no limit. Only players joining themselves are stopped — you can always add
-        someone yourself.
-      </p>
-      <form onSubmit={onSubmit}>
-        <input
-          aria-label="Maximum players"
-          type="number"
-          inputMode="numeric"
-          min={2}
-          value={value}
-          onChange={(changed) => setValue(changed.target.value)}
-          placeholder="No limit"
-        />
-        <button type="submit" disabled={update.isPending}>
-          {update.isPending ? 'Saving…' : 'Save'}
-        </button>
-      </form>
-      <ErrorNote error={update.error} />
-    </Card>
   );
 }
 

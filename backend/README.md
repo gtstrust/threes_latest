@@ -288,13 +288,17 @@ request/response schemas are at http://localhost:8000/docs.
 | `POST` | `/players` | Idempotently provision the caller's profile |
 | `GET` `PATCH` | `/players/me` | Read or update your own profile |
 | `GET` | `/players/me/tournaments` | Tournaments you're *playing in* (vs `/tournaments`, which you organise) |
-| `GET` | `/players/{id}` | Read a profile |
+| `GET` | `/players/me/stats` | Your career figures and the events you've played |
+| `GET` | `/players/me/stats/courses` | Your record at each course, hole by hole |
+| `GET` | `/players/me/referrals` | Your referral code and how many joined through it |
 | `POST` `GET` | `/courses` | Create or search courses (shared reference data) |
 | `GET` `PATCH` | `/courses/{id}` | Read a course with its holes, or rename it |
 | `PUT` | `/courses/{id}/holes` | Upsert the holes being played |
 | `POST` `GET` | `/tournaments` | Create a tournament, or list your own |
 | `GET` `PATCH` | `/tournaments/{id}` | Read or edit tournament details |
 | `POST` | `/tournaments/{id}/status` | Registration transitions (ADR-003) |
+| `POST` | `/tournaments/{id}/join-code` | Retire the current invitation and mint a new one (organiser) |
+| `POST` | `/tournaments/{id}/reminders` | Email the field about the event (organiser) |
 | `POST` `GET` | `/tournaments/{id}/participants` | Self-register, or read the field |
 | `POST` | `/tournaments/{id}/participants/virtual` | Add a Virtual Player (organiser) |
 | `DELETE` | `/tournaments/{id}/participants/{pid}` | Remove someone from the field (organiser) |
@@ -306,6 +310,15 @@ request/response schemas are at http://localhost:8000/docs.
 | `GET` | `/groups/{id}/scores` | The group's card so far |
 | `GET` | `/tournaments/{id}/leaderboard` | Cumulative standings across every round |
 | `GET` | `/rounds/{id}/leaderboard` | Standings for one round |
+| `GET` `POST` | `/join/{code}` | See what a join code names, or take your place in it |
+| `POST` `GET` | `/fun-rounds` | Start a casual round, or list the ones you're in |
+| `GET` | `/fun-rounds/{id}` | One fun round with its field and draw (players only) |
+| `GET` | `/fun-rounds/{id}/preview` | What an invitee sees before joining |
+| `POST` | `/fun-rounds/{id}/players` | Join a fun round you were sent the link to |
+| `POST` | `/fun-rounds/{id}/virtual` | Add a mate with no account (host) |
+| `POST` | `/fun-rounds/{id}/start` | Close joining and draw the group (host) |
+| `POST` | `/fun-rounds/{id}/finish` | End the round and lock the board (host) |
+| `POST` | `/internal/reminders/sweep` | Mail events coming up. Shared secret, not a bearer token — called by a scheduler |
 
 Two of these are worth knowing before you call them:
 

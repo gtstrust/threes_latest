@@ -2,20 +2,39 @@
  * Written for one hand, outdoors, in sunlight.
  *
  * The constraints that shaped this: tap targets big enough for a thumb; high
- * contrast because the screen is competing with the sun; system fonts because a
- * webfont is another blocking download on 4G; and `dvh` units so the layout does
- * not jump when mobile browser chrome slides away.
+ * contrast because the screen is competing with the sun; `dvh` units so the
+ * layout does not jump when mobile browser chrome slides away.
+ *
+ * TWO THEMES, ONE VOCABULARY. Dark is the brand register — home, leaderboards,
+ * profile, the screens looked at indoors or in a cart. `.lit` is the
+ * high-luminance theme, and the on-course screens opt into it *regardless of
+ * system preference*: in direct sun a bright screen is more legible than a dark
+ * one, which is the opposite of the usual assumption and the reason this is a
+ * scope rather than a media query.
+ *
+ * Type: the system stack for body, Archivo for display and for numbers. The
+ * numbers matter more than the typeface — every table here is a column being
+ * compared down its length, so tabular figures are in the token layer rather
+ * than remembered per component.
  */
 
 :root {
-  --green: #1b5e20;
-  --green-dark: #143f17;
-  --ink: #121712;
-  --muted: #5b665c;
-  --surface: #ffffff;
-  --page: #f4f6f4;
-  --border: #d4dcd5;
-  --danger: #a4231f;
+  /* Near-black with a green cast rather than neutral grey, so the app reads as
+     one colour family instead of a green accent bolted to a grey shell. */
+  --page: #0b0f0c;
+  --surface: #141a15;
+  --raised: #1c241d;
+  --border: #263028;
+  --ink: #f2f6f2;
+  --muted: #8fa091;
+  /* The shipped brand green (#1b5e20) is too dark to carry contrast on
+     near-black, so the dark theme uses its luminous sibling. Same hue family. */
+  --green: #4ade80;
+  --on-green: #06210f;
+  --warn: #fbbf24;
+  --danger: #f87171;
+
+  --display: Archivo, system-ui, -apple-system, 'Segoe UI', sans-serif;
 
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   color: var(--ink);
@@ -23,6 +42,29 @@
   /* 17px: comfortably above the 16px below which iOS Safari zooms on focus. */
   font-size: 17px;
   line-height: 1.5;
+  color-scheme: dark;
+}
+
+/*
+ * The on-course theme. Applied by class, not by `prefers-color-scheme`: which
+ * screen you are on decides this, not what the phone is set to. A player
+ * standing on a green in July gets the bright one whatever their settings say.
+ */
+.lit {
+  --page: #ffffff;
+  --surface: #ffffff;
+  --raised: #f1f4f1;
+  --border: #d9e0da;
+  --ink: #0d130e;
+  --muted: #5b665c;
+  --green: #1b5e20;
+  --on-green: #ffffff;
+  --warn: #92610a;
+  --danger: #a4231f;
+
+  color-scheme: light;
+  background: var(--page);
+  color: var(--ink);
 }
 
 * {
@@ -32,6 +74,7 @@
 body {
   margin: 0;
   min-height: 100dvh;
+  background: var(--page);
 }
 
 main {
@@ -49,9 +92,15 @@ main.centred {
 }
 
 h1 {
+  font-family: var(--display);
   font-size: 1.75rem;
+  font-weight: 800;
+  /* Tight, because a display face set loose at this size reads as a body font
+     that has been enlarged rather than as a heading. */
+  letter-spacing: -0.02em;
+  line-height: 1.15;
   margin: 0 0 0.25rem;
-  color: var(--green-dark);
+  color: var(--ink);
 }
 
 p {
@@ -66,16 +115,19 @@ form {
 }
 
 label {
-  font-weight: 600;
-  font-size: 0.95rem;
+  font-weight: 700;
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 input {
   font: inherit;
   padding: 0.85rem 0.9rem;
   border: 1px solid var(--border);
-  border-radius: 0.6rem;
-  background: var(--surface);
+  border-radius: 0.75rem;
+  background: var(--raised);
   min-height: 3rem;
   /* Form controls don't reliably inherit color, so set it explicitly (as
      `select` does) — otherwise light mode gets white-on-white input text. */
@@ -83,45 +135,35 @@ input {
 }
 
 input:focus-visible,
-button:focus-visible {
+button:focus-visible,
+select:focus-visible,
+a:focus-visible {
   outline: 3px solid var(--green);
   outline-offset: 2px;
 }
 
 button {
   font: inherit;
-  font-weight: 600;
+  font-weight: 700;
   /* 3rem tall: a thumb target, not a mouse target. */
   min-height: 3rem;
   padding: 0.85rem 1.1rem;
   border: 0;
-  border-radius: 0.6rem;
+  border-radius: 0.75rem;
   background: var(--green);
-  color: #fff;
+  color: var(--on-green);
   cursor: pointer;
 }
 
 button:disabled {
-  background: var(--muted);
+  background: var(--raised);
+  color: var(--muted);
   cursor: not-allowed;
 }
 
 [role='alert'] {
   color: var(--danger);
   font-weight: 600;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --ink: #eaf0ea;
-    --muted: #9aa79b;
-    --surface: #1a201b;
-    --page: #11150f;
-    --border: #333c34;
-    --green: #4c9a51;
-    --green-dark: #a5d6a7;
-    --danger: #ff8a80;
-  }
 }
 
 /* --- Layout pieces ------------------------------------------------------ */
@@ -150,9 +192,15 @@ button:disabled {
 }
 
 .card h2 {
-  font-size: 1.05rem;
-  margin: 0 0 0.6rem;
-  color: var(--green-dark);
+  /* A label above a group of things, not a heading competing with the page's.
+     Small, tracked and muted — the content is what should carry weight. */
+  font-family: var(--display);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  margin: 0 0 0.7rem;
+  color: var(--muted);
 }
 
 .muted { color: var(--muted); }
@@ -196,7 +244,7 @@ button:disabled {
   letter-spacing: 0.03em;
   padding: 0.2rem 0.5rem;
   border-radius: 0.4rem;
-  background: var(--page);
+  background: var(--raised);
   border: 1px solid var(--border);
   color: var(--muted);
   white-space: nowrap;
@@ -212,15 +260,15 @@ button:disabled {
   padding: 0.85rem 1.1rem;
   border-radius: 0.6rem;
   background: var(--green);
-  color: #fff;
-  font-weight: 600;
+  color: var(--on-green);
+  font-weight: 700;
   text-decoration: none;
 }
 
 button.ghost,
 .button-link.ghost {
   background: transparent;
-  color: var(--green-dark);
+  color: var(--ink);
   border: 1px solid var(--border);
 }
 
@@ -232,7 +280,7 @@ select {
   padding: 0.7rem 0.6rem;
   border: 1px solid var(--border);
   border-radius: 0.6rem;
-  background: var(--surface);
+  background: var(--raised);
   color: inherit;
 }
 
@@ -272,7 +320,7 @@ select {
 
 .tab.current {
   background: var(--green);
-  color: #fff;
+  color: var(--on-green);
   border-color: var(--green);
 }
 
@@ -307,6 +355,7 @@ select {
 }
 
 .stepper output {
+  font-family: var(--display);
   min-width: 2.5rem;
   text-align: center;
   font-size: 1.4rem;
@@ -395,9 +444,58 @@ select {
 }
 
 .figures dd {
+  font-family: var(--display);
   margin: 0.15rem 0 0;
   font-size: 1.35rem;
   font-weight: 600;
   /* Tabular so the column of numbers lines up as it changes. */
   font-variant-numeric: tabular-nums;
+}
+
+/* One course's block inside the by-course card. Separated by a rule rather than
+   a card each: they are read as a set, and a stack of cards would make three
+   courses look like three unrelated things. */
+.course-record + .course-record {
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.course-record h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+/* Every column here is a number being compared down the column. */
+.course-record .board td {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The scorecard grid. Narrow hole columns and a name column that takes what's
+   left, so three holes and a total fit a phone without scrolling sideways. */
+.card-grid td,
+.card-grid th {
+  padding: 0.55rem 0.25rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.card-grid td:first-child,
+.card-grid th:first-child {
+  text-align: left;
+  padding-left: 0;
+  font-variant-numeric: normal;
+}
+
+/* The hole a player took. A ring rather than a fill: the number is the content,
+   and a filled cell would make the strokes harder to read down the column. */
+.took {
+  display: inline-flex;
+  min-width: 1.9rem;
+  height: 1.9rem;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--green);
+  border-radius: 999px;
+  font-weight: 700;
 }

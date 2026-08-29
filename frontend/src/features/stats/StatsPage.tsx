@@ -10,12 +10,13 @@
  * formatting.
  */
 
+import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Card, Empty, ErrorNote, Loading, Page } from '../../components/ui';
-import { useMyStats } from '../../lib/queries';
+import { useMyCourseRecords, useMyStats, useUpdateProfile } from '../../lib/queries';
 import { useSession } from '../auth/session-context';
-import type { Career, HistoryEntry } from '../../lib/types';
+import type { Career, CourseRecord, HistoryEntry } from '../../lib/types';
 
 export function StatsPage() {
   const { player } = useSession();
@@ -33,7 +34,9 @@ export function StatsPage() {
 
   return (
     <Page title="Your golf" back={{ to: '/', label: 'Home' }}>
-      <p className="muted">{player?.display_name ?? player?.email}</p>
+      <p className="muted">{player?.email}</p>
+
+      <DisplayName />
 
       <Card>
         <h2>Career</h2>
@@ -43,6 +46,8 @@ export function StatsPage() {
           <CareerGrid career={career} />
         )}
       </Card>
+
+      <CourseRecords />
 
       <Card>
         <h2>Round by round</h2>
@@ -57,6 +62,117 @@ export function StatsPage() {
         )}
       </Card>
     </Page>
+  );
+}
+
+/**
+ * Where you've played, and how each hole has treated you.
+ *
+ * Only interesting once somebody has been round a course more than once, which
+ * is why the visit count leads each block — a single round's "average" is just
+ * that round, and saying so stops the number reading as more than it is.
+ */
+/**
+ * Your name as everyone else sees it.
+ *
+ * Without one, `display_name` falls back to the email address — so a corporate
+ * day's leaderboard prints `firstname.lastname@company.com` down the page,
+ * which is both ugly and a small privacy leak to the rest of the field.
+ */
+function DisplayName() {
+  const { player, retryProfile } = useSession();
+  const update = useUpdateProfile();
+  const [name, setName] = useState(player?.display_name ?? '');
+
+  function onSubmit(event: FormEvent) {
+    event.preventDefault();
+    // The session holds its own copy of the player and nothing in the query
+    // cache can reach it, so the refresh has to be asked for explicitly —
+    // otherwise the header still shows the old name over the new form.
+    update.mutate({ display_name: name.trim() }, { onSuccess: () => retryProfile() });
+  }
+
+  return (
+    <Card>
+      <h2>Your name</h2>
+      <form onSubmit={onSubmit}>
+        <label htmlFor="display-name">Display name</label>
+        <input
+          id="display-name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          placeholder="Kim Nguyen"
+        />
+        <p className="muted small">
+          This is the name on leaderboards. Without it, your email address shows instead.
+        </p>
+        <button type="submit" disabled={update.isPending || !name.trim()}>
+          {update.isPending ? 'Saving…' : 'Save'}
+        </button>
+      </form>
+      <ErrorNote error={update.error} />
+    </Card>
+  );
+}
+
+function CourseRecords() {
+  const courses = useMyCourseRecords();
+
+  if (courses.isPending) return null;
+  if (courses.error)
+    return (
+      <Card>
+        <h2>By course</h2>
+        <ErrorNote error={courses.error} />
+      </Card>
+    );
+  if (!courses.data?.length) return null;
+
+  return (
+    <Card>
+      <h2>By course</h2>
+      {courses.data.map((course) => (
+        <CourseBlock key={course.course_id} course={course} />
+      ))}
+    </Card>
+  );
+}
+
+function CourseBlock({ course }: { course: CourseRecord }) {
+  return (
+    <section className="course-record">
+      <h3>
+        {course.course_name}{' '}
+        <span className="muted small">
+          {course.rounds_played} {course.rounds_played === 1 ? 'round' : 'rounds'} ·{' '}
+          {course.average_strokes.toFixed(2)} per hole
+        </span>
+      </h3>
+      <table className="board">
+        <thead>
+          <tr>
+            <th>Hole</th>
+            <th>Played</th>
+            <th>Avg</th>
+            <th>Best</th>
+            <th>Won</th>
+          </tr>
+        </thead>
+        <tbody>
+          {course.holes.map((hole) => (
+            <tr key={hole.hole_number}>
+              <td>{hole.hole_number}</td>
+              <td>{hole.times_played}</td>
+              <td>{hole.average_strokes.toFixed(2)}</td>
+              <td>{hole.best_strokes}</td>
+              <td>
+                {hole.holes_won}/{hole.times_played}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
   );
 }
 

@@ -12,7 +12,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from app.models.tournament import TournamentKind, TournamentStatus
-from app.services.stats import CareerTotals, HistoryEntry, PlayerStats
+from app.services.stats import CareerTotals, CourseFigures, HistoryEntry, PlayerStats
 
 
 class CareerRead(BaseModel):
@@ -80,4 +80,51 @@ class PlayerStatsRead(BaseModel):
         return cls(
             career=CareerRead.from_totals(stats.career),
             history=[HistoryEntryRead.from_entry(entry) for entry in stats.history],
+        )
+
+
+class HoleRecordRead(BaseModel):
+    """One hole of one course, over every time this player has played it.
+
+    `best_strokes` is the interesting number on a short course: over three holes
+    an average moves slowly, but a personal best is a thing somebody remembers.
+    """
+
+    hole_number: int
+    times_played: int
+    holes_won: int
+    best_strokes: int
+    average_strokes: float
+
+
+class CourseRecordRead(BaseModel):
+    """A player's record at one course, and hole by hole within it."""
+
+    course_id: UUID
+    course_name: str
+    rounds_played: int
+    holes_played: int
+    holes_won: int
+    average_strokes: float
+    holes: list[HoleRecordRead]
+
+    @classmethod
+    def from_figures(cls, figures: CourseFigures) -> "CourseRecordRead":
+        return cls(
+            course_id=figures.course_id,
+            course_name=figures.course_name,
+            rounds_played=figures.rounds_played,
+            holes_played=figures.holes_played,
+            holes_won=figures.holes_won,
+            average_strokes=round(figures.average_strokes, 2),
+            holes=[
+                HoleRecordRead(
+                    hole_number=hole.hole_number,
+                    times_played=hole.times_played,
+                    holes_won=hole.holes_won,
+                    best_strokes=hole.best_strokes,
+                    average_strokes=round(hole.average_strokes, 2),
+                )
+                for hole in figures.holes
+            ],
         )

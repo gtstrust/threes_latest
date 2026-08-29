@@ -13,6 +13,8 @@ import { FunRoundPage } from './features/fun-rounds/FunRoundPage';
 import { FunRoundLeaderboardPage } from './features/fun-rounds/FunRoundLeaderboardPage';
 import { JoinPage } from './features/join/JoinPage';
 import { StatsPage } from './features/stats/StatsPage';
+import { ScorecardPage } from './features/scoring/ScorecardPage';
+import { TournamentSettingsPage } from './features/tournaments/TournamentSettingsPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -36,6 +38,25 @@ const queryClient = new QueryClient({
 function TournamentRoute() {
   const { id } = useParams();
   return id ? <TournamentPage tournamentId={id} /> : <Navigate to="/" replace />;
+}
+
+function SettingsRoute() {
+  const { id } = useParams();
+  return id ? <TournamentSettingsPage tournamentId={id} /> : <Navigate to="/" replace />;
+}
+
+function ScorecardRoute() {
+  const { groupId } = useParams();
+  return groupId ? <ScorecardPage groupId={groupId} /> : <Navigate to="/" replace />;
+}
+
+function FunRoundScorecardRoute() {
+  const { id, groupId } = useParams();
+  return id && groupId ? (
+    <ScorecardPage groupId={groupId} backTo={{ to: `/r/${id}`, label: 'Fun round' }} />
+  ) : (
+    <Navigate to="/" replace />
+  );
 }
 
 function LeaderboardRoute() {
@@ -85,12 +106,15 @@ export default function App() {
                   day, and a long URL is a worse thing to read out loud. */}
               <Route path="/t/:id" element={<TournamentRoute />} />
               <Route path="/t/:id/leaderboard" element={<LeaderboardRoute />} />
+              <Route path="/t/:id/settings" element={<SettingsRoute />} />
               <Route path="/g/:groupId" element={<ScoreRoute />} />
+              <Route path="/g/:groupId/card" element={<ScorecardRoute />} />
               {/* Fun rounds — casual, self-run. Short paths, shared by text. */}
               <Route path="/rounds/new" element={<NewFunRoundPage />} />
               <Route path="/r/:id" element={<FunRoundRoute />} />
               <Route path="/r/:id/leaderboard" element={<FunRoundLeaderboardRoute />} />
               <Route path="/r/:id/g/:groupId" element={<FunRoundScoreRoute />} />
+              <Route path="/r/:id/g/:groupId/card" element={<FunRoundScorecardRoute />} />
               {/* The invitation. Shorter than either event path on purpose —
                   it gets printed on a sign and read out on a tee. */}
               <Route path="/join/:code" element={<JoinRoute />} />

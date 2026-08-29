@@ -1,12 +1,29 @@
-from uuid import UUID
-
 from fastapi import APIRouter, HTTPException, status
 
-from app.core.deps import CurrentUserDep, PlayerServiceDep, TournamentServiceDep
+from app.core.deps import (
+    CurrentUserDep,
+    PlayerServiceDep,
+    StatsServiceDep,
+    TournamentServiceDep,
+)
 from app.schemas.player import PlayerRead, PlayerUpdate, ProvisionProfile, ReferralsRead
+from app.schemas.stats import CourseRecordRead, PlayerStatsRead
 from app.schemas.tournament import TournamentRead
 
 router = APIRouter(prefix="/players", tags=["players"])
+
+# Every route here is `/me`-scoped: the caller's own id is the filter, so there is
+# no id to substitute for somebody else's. A `GET /players/{player_id}` used to
+# sit alongside them and returned `PlayerRead` — email included — to anyone
+# holding a valid token. Since `ParticipantRead` hands out `player_id` to
+# everyone who can read a field, that made a guest list's email addresses
+# readable by anyone who joined the event (#27). Nothing called it: the app never
+# looks a player up, because `TournamentParticipant.display_name` is snapshotted
+# at registration and every screen showing a name already has it.
+#
+# If a "who am I playing with" lookup is ever wanted, it belongs in a new route
+# returning a shape built for that — not in a profile read that carries contact
+# details along for the ride.
 
 
 @router.post("", response_model=PlayerRead)
@@ -78,16 +95,6 @@ async def list_my_tournaments(
     return [TournamentRead.for_viewer(tournament, current_user.id) for tournament in playing]
 
 
-@router.get("/{player_id}", response_model=PlayerRead)
-async def read_player(
-    player_id: UUID, current_user: CurrentUserDep, player_service: PlayerServiceDep
-) -> PlayerRead:
-    player = await player_service.get_by_id(player_id)
-    if player is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found")
-    return PlayerRead.model_validate(player)
-
-
 @router.get("/me/referrals", response_model=ReferralsRead)
 async def read_my_referrals(
     current_user: CurrentUserDep, player_service: PlayerServiceDep
@@ -103,3 +110,36 @@ async def read_my_referrals(
         referral_code=player.referral_code,
         players_referred=await player_service.count_referred(player.id),
     )
+
+
+@router.get("/me/stats/courses", response_model=list[CourseRecordRead])
+async def read_my_course_records(
+    current_user: CurrentUserDep, stats: StatsServiceDep
+) -> list[CourseRecordRead]:
+    """The caller's record at each course they've played, hole by hole.
+
+    Separate from `/me/stats` rather than folded into it: this grows with every
+    course somebody plays, while the career figures and recent history do not,
+    and the page that opens on sign-in should not pay for a section further down
+    it. Own data only, so the caller's id is the filter and there is no guard to
+    add beyond the bearer token.
+    """
+    return [
+        CourseRecordRead.from_figures(figures)
+        for figures in await stats.courses_for_player(current_user.id)
+    ]
+
+
+@router.get("/me/stats", response_model=PlayerStatsRead)
+async def read_my_stats(current_user: CurrentUserDep, stats: StatsServiceDep) -> PlayerStatsRead:
+    """The caller's own record: career figures and their recent events.
+
+    No authorization guard beyond the bearer token, because there is nothing to
+    guard against — the caller's own id *is* the filter, so there is no id to
+    substitute for somebody else's. Reading another player's record is not a
+    permission this endpoint refuses; it is a thing it cannot express.
+
+    A player with no profile still gets an answer: an empty history and zeroes,
+    which is what somebody who has signed up and played nothing should see.
+    """
+    return PlayerStatsRead.from_stats(await stats.for_player(current_user.id))

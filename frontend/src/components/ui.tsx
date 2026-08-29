@@ -37,19 +37,29 @@ export function ErrorNote({ error }: { error: unknown }) {
   );
 }
 
+/**
+ * A screen.
+ *
+ * `theme="lit"` opts into the high-luminance treatment — and it is a choice the
+ * *screen* makes, not the phone. In direct sun a bright screen is more legible
+ * than a dark one, so score entry and the scorecard ask for it whatever the
+ * system preference says, while everything else keeps the dark brand register.
+ */
 export function Page({
   title,
   back,
   children,
   actions,
+  theme,
 }: {
   title: string;
   back?: { to: string; label: string };
   children: ReactNode;
   actions?: ReactNode;
+  theme?: 'lit';
 }) {
   return (
-    <main>
+    <main className={theme}>
       {back && (
         <Link to={back.to} className="back">
           ← {back.label}

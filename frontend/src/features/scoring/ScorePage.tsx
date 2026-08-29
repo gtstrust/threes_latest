@@ -12,6 +12,7 @@
  */
 
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 
 import { Card, ErrorNote, Loading, Page } from '../../components/ui';
 import { useGroupCard, useRound, useSubmitHole } from '../../lib/queries';
@@ -19,6 +20,17 @@ import { api } from '../../lib/api';
 import { useQuery } from '@tanstack/react-query';
 import type { Group, HoleResult, Participant, Round, UUID } from '../../lib/types';
 import { NOTHING_ASKED, nextPrompt, strokesFrom, type Asked } from './cascade';
+
+/**
+ * Where the whole card lives for this group.
+ *
+ * A fun round nests its group under the round (`/r/:id/g/:groupId`) so the back
+ * link can lead somewhere sensible; a tournament's is top level. The card
+ * follows whichever shape brought us here.
+ */
+function cardPath(groupId: UUID, backTo?: BackTo): string {
+  return backTo?.to.startsWith('/r/') ? `${backTo.to}/g/${groupId}/card` : `/g/${groupId}/card`;
+}
 
 /** A sane opening guess, so most holes are two taps rather than four. */
 const DEFAULT_STROKES = 4;
@@ -41,7 +53,7 @@ export function ScorePage({ groupId, backTo }: { groupId: UUID; backTo?: BackTo 
   if (group.isPending || round.isPending) return <Loading what="Loading your group" />;
   if (group.error || round.error)
     return (
-      <Page title="Scores" back={backTo ?? { to: '/', label: 'Home' }}>
+      <Page title="Scores" back={backTo ?? { to: '/', label: 'Home' }} theme="lit">
         <ErrorNote error={group.error ?? round.error} />
       </Page>
     );
@@ -86,8 +98,7 @@ function ScoreCard({
   const [holeId, setHoleId] = useState<UUID>(firstUnplayed?.hole_id ?? '');
 
   const existing = played.find((hole) => hole.hole_id === holeId);
-  const nameOf = (id: UUID) =>
-    field.data?.find((p) => p.id === id)?.display_name ?? 'Player';
+  const nameOf = (id: UUID) => field.data?.find((p) => p.id === id)?.display_name ?? 'Player';
 
   if (field.isPending || loading) return <Loading what="Loading the card" />;
 
@@ -95,6 +106,7 @@ function ScoreCard({
     <Page
       title={`Group ${group.group_number}`}
       back={backTo ?? { to: `/t/${tournamentId}`, label: 'Tournament' }}
+      theme="lit"
     >
       <nav className="hole-tabs" aria-label="Holes in this loop">
         {loop.map((hole, index) => (
@@ -110,6 +122,10 @@ function ScoreCard({
           </button>
         ))}
       </nav>
+
+      <Link to={cardPath(group.id, backTo)} className="button-link">
+        See the whole card
+      </Link>
 
       {holeId && (
         <HoleEntry
