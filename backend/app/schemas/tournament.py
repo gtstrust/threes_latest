@@ -9,10 +9,21 @@ from app.models.tournament import (
     TournamentFormat,
     TournamentStatus,
 )
+from app.services.grouping import MIN_GROUP_SIZE
+
+
+# A cap below this describes an event nobody could play: the draw refuses to make
+# a group of one (ADR-004), so a one-player field can never tee off.
+MIN_MAX_PLAYERS = MIN_GROUP_SIZE
 
 
 class TournamentCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
+    max_players: int | None = Field(
+        default=None,
+        ge=MIN_MAX_PLAYERS,
+        description="Optional ceiling on the field, enforced when players register themselves.",
+    )
     format: TournamentFormat = Field(
         default=TournamentFormat.ROUND_ROBIN,
         description="Only ROUND_ROBIN is accepted; KNOCKOUT is not implemented yet.",
@@ -41,6 +52,9 @@ class TournamentUpdate(BaseModel):
     """Every field optional — only what's supplied is changed."""
 
     name: str | None = Field(default=None, min_length=1, max_length=200)
+    # An explicit null removes the cap, which `exclude_unset` in the repository
+    # keeps distinguishable from not mentioning it at all.
+    max_players: int | None = Field(default=None, ge=MIN_MAX_PLAYERS)
     course_id: UUID | None = None
     scheduled_at: datetime | None = None
 
@@ -60,6 +74,7 @@ class TournamentRead(BaseModel):
     status: TournamentStatus
     format: TournamentFormat
     course_id: UUID | None
+    max_players: int | None
     scheduled_at: datetime | None
     created_at: datetime
     updated_at: datetime

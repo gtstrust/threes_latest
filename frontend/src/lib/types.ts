@@ -64,6 +64,8 @@ export type Tournament = {
   organiser_id: UUID;
   /** The invitation — null unless you're the organiser, whose code it is to hand out. */
   join_code: string | null;
+  /** Optional ceiling on the field. Null means no cap; it only binds self-registration. */
+  max_players: number | null;
   status: TournamentStatus;
   format: 'ROUND_ROBIN';
   course_id: UUID | null;

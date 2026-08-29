@@ -49,6 +49,14 @@ class AlreadyRegistered(ParticipantError):
     """This player already has a place in this tournament."""
 
 
+class FieldFull(ParticipantError):
+    """Self-registration hit the organiser's `max_players` ceiling."""
+
+
+class CapBelowField(ParticipantError):
+    """A cap was set lower than the number of players already registered."""
+
+
 class ParticipantService:
     def __init__(self, session: AsyncSession) -> None:
         self._repository = ParticipantRepository(session)
@@ -72,6 +80,7 @@ class ParticipantService:
 
         Raises:
             RegistrationClosed: If the tournament isn't accepting registrations.
+            FieldFull: If the organiser's cap is already reached.
             PlayerProfileMissing: If the caller hasn't provisioned a profile.
             AlreadyRegistered: If they already have a place.
         """
@@ -79,6 +88,12 @@ class ParticipantService:
             raise RegistrationClosed(
                 f"Registration for this tournament is not open (status "
                 f"{tournament.status.value}). Ask the organiser to add you."
+            )
+
+        if await self.is_full(tournament):
+            raise FieldFull(
+                f"This event is full — the organiser capped it at "
+                f"{tournament.max_players} players."
             )
 
         player = await self._players.get_by_id(current_user.id)
@@ -105,6 +120,12 @@ class ParticipantService:
         Names are deliberately not unique — two players really can both be called
         John Smith, and refusing that would be worse than the ambiguity.
 
+        **`max_players` deliberately does not apply here.** The cap exists to stop
+        a shared join link filling an event past what was booked; an organiser
+        typing a name in is the opposite of that, and it is their number to
+        exceed. It matches the override that lets them edit the field at all
+        after registration has closed.
+
         Raises:
             FieldLocked: If play has already started.
         """
@@ -121,6 +142,40 @@ class ParticipantService:
         """
         self._require_field_unlocked(tournament)
         await self._repository.delete(participant)
+
+    async def count_for_tournament(self, tournament_id: UUID) -> int:
+        """How many are registered. Named separately because two rules read it."""
+        return len(await self._repository.list_for_tournament(tournament_id))
+
+    async def is_full(self, tournament: Tournament) -> bool:
+        """Whether the organiser's cap is reached. False when there is no cap.
+
+        Public so an invitation can say the event is full instead of offering a
+        button that answers 409 — the same job `FunRoundService.is_full` does for
+        a fun round's fixed ceiling of one group.
+        """
+        if tournament.max_players is None:
+            return False
+        return await self.count_for_tournament(tournament.id) >= tournament.max_players
+
+    async def require_cap_fits_field(self, tournament: Tournament, cap: int | None) -> None:
+        """Refuse a cap the field has already outgrown.
+
+        Accepting it would leave an event permanently over quota with no way back:
+        nothing removes players to fit a number, and the organiser would see a
+        field of nine against a cap of six with no explanation of which is real.
+
+        Raises:
+            CapBelowField: If `cap` is below the current field size.
+        """
+        if cap is None:
+            return
+        registered = await self.count_for_tournament(tournament.id)
+        if cap < registered:
+            raise CapBelowField(
+                f"{registered} players have already registered, so the cap can't "
+                f"be {cap}. Remove players first, or set it to {registered} or more."
+            )
 
     @staticmethod
     def _require_field_unlocked(tournament: Tournament) -> None:

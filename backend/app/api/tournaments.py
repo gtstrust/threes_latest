@@ -12,6 +12,7 @@ from app.core.deps import (
 )
 from app.models.tournament import Tournament
 from app.schemas.join import JoinCodeRead
+from app.services.participant import CapBelowField
 from app.schemas.tournament import (
     TournamentCreate,
     TournamentRead,
@@ -97,12 +98,18 @@ async def update_tournament(
     updates: TournamentUpdate,
     current_user: CurrentUserDep,
     service: TournamentServiceDep,
+    participants: ParticipantServiceDep,
 ) -> TournamentRead:
     tournament = await _get_or_404(tournament_id, service)
     reject_fun_round(tournament)
     require_organiser(tournament, current_user)
+    if "max_players" in updates.model_fields_set:
+        try:
+            await participants.require_cap_fits_field(tournament, updates.max_players)
+        except CapBelowField as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     updated = await service.update_details(tournament, updates)
-    return TournamentRead.model_validate(updated)
+    return TournamentRead.for_viewer(updated, current_user.id)
 
 
 @router.post("/{tournament_id}/status", response_model=TournamentRead)

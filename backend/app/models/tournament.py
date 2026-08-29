@@ -118,4 +118,10 @@ class Tournament(Base, TimestampMixin):
     # NULL and pass their selection to `draw_round` instead.
     hole_numbers: Mapped[list[int] | None] = mapped_column(ARRAY(Integer), nullable=True)
 
+    # An optional ceiling on the field, enforced when a player registers
+    # themselves (ParticipantService.self_register). NULL means no cap — a cap is
+    # something an organiser opts into once tee times or catering make the number
+    # real, not a limit the platform invents for them.
+    max_players: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

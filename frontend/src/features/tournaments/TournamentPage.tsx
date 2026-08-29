@@ -13,7 +13,7 @@
  * buttons here — the draw button is the transition.
  */
 
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Card, Empty, ErrorNote, Loading, Page } from '../../components/ui';
@@ -29,6 +29,7 @@ import {
   useRounds,
   useSetStatus,
   useTournament,
+  useUpdateTournament,
 } from '../../lib/queries';
 import { ApiError } from '../../lib/api';
 import { useSession } from '../auth/session-context';
@@ -97,6 +98,7 @@ export function TournamentPage({ tournamentId }: { tournamentId: UUID }) {
   const isOrganiser = event.organiser_id === player?.id;
   const me = field.data?.find((p) => p.player_id === player?.id);
   const status = event.status;
+  const isFull = event.max_players !== null && (field.data?.length ?? 0) >= event.max_players;
 
   return (
     <Page title={event.name} back={{ to: '/', label: 'Tournaments' }}>
@@ -122,13 +124,25 @@ export function TournamentPage({ tournamentId }: { tournamentId: UUID }) {
         />
       )}
 
+      {isOrganiser && FIELD_IS_EDITABLE.includes(status) && (
+        <FieldCap tournamentId={tournamentId} current={event.max_players} />
+      )}
+
       {/* --- The player's own place in it -------------------------------- */}
       {!me && status === 'REGISTRATION_OPEN' && (
         <Card>
           <h2>Join</h2>
-          <button type="button" onClick={() => join.mutate()} disabled={join.isPending}>
-            {join.isPending ? 'Joining…' : "I'm playing"}
-          </button>
+          {isFull ? (
+            // Said out loud rather than shown as a disabled button with no
+            // explanation — "full" is information, not a failure.
+            <p className="muted">
+              This event is full — the organiser capped it at {event.max_players} players.
+            </p>
+          ) : (
+            <button type="button" onClick={() => join.mutate()} disabled={join.isPending}>
+              {join.isPending ? 'Joining…' : "I'm playing"}
+            </button>
+          )}
           <ErrorNote error={join.error} />
         </Card>
       )}
@@ -139,7 +153,14 @@ export function TournamentPage({ tournamentId }: { tournamentId: UUID }) {
 
       {/* --- The field ---------------------------------------------------- */}
       <Card>
-        <h2>The field {field.data ? `(${field.data.length})` : ''}</h2>
+        <h2>
+          The field{' '}
+          {field.data
+            ? event.max_players
+              ? `(${field.data.length} of ${event.max_players})`
+              : `(${field.data.length})`
+            : ''}
+        </h2>
         {field.isPending && <Loading />}
         <ErrorNote error={field.error ?? removeParticipant.error} />
         {field.data?.length === 0 && <Empty>Nobody has joined yet.</Empty>}
@@ -258,6 +279,49 @@ export function TournamentPage({ tournamentId }: { tournamentId: UUID }) {
         </Card>
       )}
     </Page>
+  );
+}
+
+/**
+ * The optional ceiling on the field.
+ *
+ * Only bounded from below by two, and only ever refused by the API when the
+ * field has already outgrown the number — which is worth surfacing rather than
+ * pre-empting, since the organiser's fix (remove someone, or pick a bigger
+ * number) depends on which they meant.
+ */
+function FieldCap({ tournamentId, current }: { tournamentId: UUID; current: number | null }) {
+  const update = useUpdateTournament(tournamentId);
+  const [value, setValue] = useState(current === null ? '' : String(current));
+
+  function onSubmit(submitted: FormEvent) {
+    submitted.preventDefault();
+    update.mutate({ max_players: value === '' ? null : Number(value) });
+  }
+
+  return (
+    <Card>
+      <h2>Maximum players</h2>
+      <p className="muted small">
+        Leave blank for no limit. Only players joining themselves are stopped — you can always add
+        someone yourself.
+      </p>
+      <form onSubmit={onSubmit}>
+        <input
+          aria-label="Maximum players"
+          type="number"
+          inputMode="numeric"
+          min={2}
+          value={value}
+          onChange={(changed) => setValue(changed.target.value)}
+          placeholder="No limit"
+        />
+        <button type="submit" disabled={update.isPending}>
+          {update.isPending ? 'Saving…' : 'Save'}
+        </button>
+      </form>
+      <ErrorNote error={update.error} />
+    </Card>
   );
 }
 

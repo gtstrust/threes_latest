@@ -135,9 +135,21 @@ export function useGroupCard(groupId: UUID) {
 export function useCreateTournament() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (body: { name: string; course_id?: UUID }) =>
+    mutationFn: (body: { name: string; course_id?: UUID; max_players?: number }) =>
       api.post<Tournament>('/tournaments', body),
     onSuccess: () => void client.invalidateQueries({ queryKey: keys.organising }),
+  });
+}
+
+/** Change a tournament's details. Today only the cap is edited after setup. */
+export function useUpdateTournament(id: UUID) {
+  const client = useQueryClient();
+  return useMutation({
+    // `max_players: null` clears the cap, which is why the value is nullable
+    // rather than optional — omitting it would leave the cap alone instead.
+    mutationFn: (body: { max_players?: number | null }) =>
+      api.patch<Tournament>(`/tournaments/${id}`, body),
+    onSuccess: () => void client.invalidateQueries({ queryKey: keys.tournament(id) }),
   });
 }
 
