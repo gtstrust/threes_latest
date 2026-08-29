@@ -1,0 +1,59 @@
+# Fly.io configuration for the Threes API.
+#
+# Lives in backend/ because that is the Docker build context — the Dockerfile
+# copies `app`, `alembic.ini` and `migrations` relative to this directory.
+#
+# Nothing secret belongs in this file: it is committed. Real values are set with
+# `fly secrets set` and listed in docs/DEPLOYMENT.md.
+
+app = "threes-api"
+
+# Sydney. The pilot is Australian and the Supabase project is already in
+# ap-southeast-2 — every request makes a database round trip, so putting the API
+# on the other side of the Pacific from its data would be felt on every hole.
+primary_region = "syd"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[deploy]
+  # Runs on the new image in a temporary machine *before* it takes traffic, so a
+  # migration that fails aborts the release instead of half-applying underneath a
+  # live event. `alembic` is a runtime dependency in pyproject.toml, not a dev
+  # one, so it is present in the image this runs from.
+  release_command = "alembic upgrade head"
+
+[env]
+  # Non-secrets only. ENVIRONMENT is read by app/core/config.py; everything else
+  # it reads (SUPABASE_URL, SUPABASE_KEY, SUPABASE_JWT_SECRET, DATABASE_URL,
+  # CORS_ORIGINS) is a secret and is deliberately absent here.
+  ENVIRONMENT = "production"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+
+  # Both deliberate, and the reason this app is not cheaper to run: a cold start
+  # between two holes is the failure that matters here. A group standing on a
+  # green waiting for a machine to boot will decide the app is broken, and they
+  # will be right for the ten seconds it takes. Idle cost on a shared-cpu-1x is
+  # the correct thing to trade for that.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  processes = ["app"]
+
+  [[http_service.http_checks]]
+    # /health is the one route that does not require a bearer token
+    # (app/main.py); every other path would answer 403 to a prober.
+    path = "/health"
+    interval = "15s"
+    timeout = "3s"
+    grace_period = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  # 512MB rather than 256: SQLAlchemy, asyncpg and the JWKS cache sit
+  # comfortably here, and the OOM this avoids would land mid-round.
+  memory = "512mb"

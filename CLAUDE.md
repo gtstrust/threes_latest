@@ -10,8 +10,8 @@ Threes is a short-form competitive golf platform where players compete over 3-ho
 
 ## Current Implementation Status
 
-Only `backend/` exists so far — `frontend/` and `docs/` in the structure below are the target
-layout, not yet created.
+`backend/`, `frontend/` and `docs/` all exist. Within `docs/`, only `DEPLOYMENT.md` is written —
+`ARCHITECTURE.md`, `API.md` and `SECURITY.md` in the structure below are still target layout.
 
 Implemented end-to-end in the backend: **auth, players, courses/holes, tournaments (with the
 ADR-003 state machine), participants, rounds/groups (the shotgun-start draw), score entry
@@ -30,7 +30,10 @@ subscribed client answers by refetching. It is off unless a real Supabase projec
 local runs and the test suite are unaffected, and it needs a **secret** key (`sb_secret_…`); the
 broadcast endpoint rejects a publishable one.
 
-**The backend is complete for Phase 1.** Not built: the whole of `frontend/`.
+**Phase 1 is complete, backend and frontend.** Phase 2 is two of six done — Fun Rounds and
+invite/join-links + QR (see `ROADMAP.md`). What has *not* happened is a deployment: everything
+still runs on `localhost`, which is the last thing between this build and the Phase 1 milestone.
+`docs/DEPLOYMENT.md` is the runbook and the files it needs are committed; nothing is deployed.
 
 See [`backend/CLAUDE.md`](./backend/CLAUDE.md) for backend-specific commands, the auth/JWT model,
 and implementation gotchas (e.g. new models must be registered in `app/models/__init__.py` or
@@ -98,13 +101,16 @@ threes/
 ├── .github/
 │   └── workflows/
 │       ├── backend-ci.yml
-│       └── frontend-ci.yml
+│       ├── frontend-ci.yml
+│       └── deploy-backend.yml   # manual (workflow_dispatch) Fly deploy
 ├── CLAUDE.md                 # This file
 ├── README.md
 ├── ROADMAP.md
-├── CONTRIBUTING.md
-└── docker-compose.yml
+└── CONTRIBUTING.md
 ```
+
+Note `docker-compose.yml`, `Dockerfile` and `fly.toml` live in **`backend/`**, not at the root —
+the compose file's build context and the Docker build context are both that directory.
 
 ## Development Commands
 
@@ -409,5 +415,5 @@ VITE_API_BASE_URL=http://localhost:8000
    leaderboard endpoint. See ADR-010 for why Postgres Changes was rejected.
 5. Magic link auth means no passwords are stored. Supabase Auth handles the entire flow.
 6. MVP is a **lean validation build**: web-only, no AI, no offline sync, no Fun Rounds — see `THREES_STRATEGY.md`. The MVP milestone is running one real corporate golf day, with the organiser paying the per-event fee.
-7. Phase 2 — post-pilot engagement & growth (the focused next investment): completing **Fun Rounds** (the casual non-tournament flow), **invite / join-links + QR**, **player caps**, **reminders** (which pulls an outbound-email channel forward), **referrals**, and **per-player stats / history**. See `ROADMAP.md` for scope and dependencies.
+7. Phase 2 — post-pilot engagement & growth. **Built:** **Fun Rounds** (the casual non-tournament flow) and **invite / join-links + QR** (a short revocable join code on every tournament and fun round; `GET`/`POST /join/{code}`). **Remaining:** **player caps**, **reminders** (which pulls an outbound-email channel forward), **referrals**, and **per-player stats / history**. See `ROADMAP.md` for scope and dependencies.
 8. Phase 3 — later (everything else deferred, folded into one bucket): **handicaps / net scoring**, native iOS/Android apps, offline-first sync, AI invitation/summary generation, standalone longest-drive and closest-to-pin competitions (with their own prizes and leaderboards), social friends, gamification, realtime private channels — plus the commercial build: Stripe payment processing, golf club/corporate accounts, sponsors. Note that longest drive and closest to pin are *captured* in MVP because ADR-007 needs them to break tied holes — what's deferred is treating them as competitions in their own right.
