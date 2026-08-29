@@ -1,5 +1,3 @@
-from uuid import UUID
-
 from fastapi import APIRouter, HTTPException, status
 
 from app.core.deps import (
@@ -13,6 +11,19 @@ from app.schemas.stats import CourseRecordRead, PlayerStatsRead
 from app.schemas.tournament import TournamentRead
 
 router = APIRouter(prefix="/players", tags=["players"])
+
+# Every route here is `/me`-scoped: the caller's own id is the filter, so there is
+# no id to substitute for somebody else's. A `GET /players/{player_id}` used to
+# sit alongside them and returned `PlayerRead` — email included — to anyone
+# holding a valid token. Since `ParticipantRead` hands out `player_id` to
+# everyone who can read a field, that made a guest list's email addresses
+# readable by anyone who joined the event (#27). Nothing called it: the app never
+# looks a player up, because `TournamentParticipant.display_name` is snapshotted
+# at registration and every screen showing a name already has it.
+#
+# If a "who am I playing with" lookup is ever wanted, it belongs in a new route
+# returning a shape built for that — not in a profile read that carries contact
+# details along for the ride.
 
 
 @router.post("", response_model=PlayerRead)
@@ -82,16 +93,6 @@ async def list_my_tournaments(
     # for_viewer, not model_validate: these are events the caller plays in but
     # mostly does not run, and the join code is the organiser's to hand out.
     return [TournamentRead.for_viewer(tournament, current_user.id) for tournament in playing]
-
-
-@router.get("/{player_id}", response_model=PlayerRead)
-async def read_player(
-    player_id: UUID, current_user: CurrentUserDep, player_service: PlayerServiceDep
-) -> PlayerRead:
-    player = await player_service.get_by_id(player_id)
-    if player is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found")
-    return PlayerRead.model_validate(player)
 
 
 @router.get("/me/referrals", response_model=ReferralsRead)

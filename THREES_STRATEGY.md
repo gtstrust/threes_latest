@@ -26,6 +26,7 @@
 - The actual tier boundaries and prices.
 - Why organiser-billed beats per-player entry fees for corporate golf days.
 - What the fee has to clear to make a pilot worth running.
+- The fee is $5 per player
 
 ## 2. Why the MVP defers offline-first sync
 
