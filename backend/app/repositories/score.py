@@ -133,6 +133,9 @@ class ScoreRepository:
                 func.min(HoleScore.strokes),
                 func.sum(HoleScore.strokes),
             )
+            # Explicit left side: the select list starts at Hole, so SQLAlchemy
+            # cannot infer that the joins hang off hole_scores.
+            .select_from(HoleScore)
             .join(Hole, Hole.id == HoleScore.hole_id)
             .join(
                 TournamentParticipant,
@@ -168,6 +171,7 @@ class ScoreRepository:
                 Course.name,
                 func.count(func.distinct(Group.round_id)),
             )
+            .select_from(HoleScore)
             .join(Hole, Hole.id == HoleScore.hole_id)
             .join(Course, Course.id == Hole.course_id)
             .join(Group, Group.id == HoleScore.group_id)

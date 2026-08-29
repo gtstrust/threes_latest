@@ -182,6 +182,32 @@ const ROUTES: Record<string, unknown> = {
       },
     ],
   },
+  '/players/me/stats/courses': [
+    {
+      course_id: 'course-1',
+      course_name: 'Royal Melbourne',
+      rounds_played: 2,
+      holes_played: 6,
+      holes_won: 3,
+      average_strokes: 4.17,
+      holes: [
+        {
+          hole_number: 1,
+          times_played: 2,
+          holes_won: 2,
+          best_strokes: 3,
+          average_strokes: 3.5,
+        },
+        {
+          hole_number: 2,
+          times_played: 2,
+          holes_won: 1,
+          best_strokes: 4,
+          average_strokes: 4.5,
+        },
+      ],
+    },
+  ],
   '/courses': [
     { id: 'course-1', name: 'Royal Melbourne', created_by: PLAYER_ID, hole_count: 9 },
     // Created by this player and unplayable, which is the pair the picker has to
@@ -523,6 +549,18 @@ describe('screens render', () => {
 
     expect(await screen.findByText('Saturday nine')).toBeInTheDocument();
     expect(screen.getByText(/not played yet/i)).toBeInTheDocument();
+  });
+
+  it('your record breaks down by course and by hole', async () => {
+    show(<StatsPage />);
+
+    expect(await screen.findByText('By course')).toBeInTheDocument();
+    // The visit count leads, because a single round's "average" is just that
+    // round and the number should not read as more than it is.
+    expect(screen.getByText(/2 rounds/)).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Best' })).toBeInTheDocument();
+    expect(screen.getByText('3.50')).toBeInTheDocument();
+    expect(screen.getByText('2/2')).toBeInTheDocument();
   });
 
   it('the leaderboard shows positions, points and who is still out', async () => {

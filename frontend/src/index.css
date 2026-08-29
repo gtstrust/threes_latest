@@ -401,3 +401,22 @@ select {
   /* Tabular so the column of numbers lines up as it changes. */
   font-variant-numeric: tabular-nums;
 }
+
+/* One course's block inside the by-course card. Separated by a rule rather than
+   a card each: they are read as a set, and a stack of cards would make three
+   courses look like three unrelated things. */
+.course-record + .course-record {
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.course-record h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+/* Every column here is a number being compared down the column. */
+.course-record .board td {
+  font-variant-numeric: tabular-nums;
+}

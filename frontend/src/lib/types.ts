@@ -244,3 +244,22 @@ export type HistoryEntry = {
 };
 
 export type PlayerStats = { career: Career; history: HistoryEntry[] };
+
+/** Your record on one hole of one course, over every time you've played it. */
+export type HoleRecord = {
+  hole_number: number;
+  times_played: number;
+  holes_won: number;
+  best_strokes: number;
+  average_strokes: number;
+};
+
+export type CourseRecord = {
+  course_id: UUID;
+  course_name: string;
+  rounds_played: number;
+  holes_played: number;
+  holes_won: number;
+  average_strokes: number;
+  holes: HoleRecord[];
+};

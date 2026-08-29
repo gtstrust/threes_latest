@@ -17,6 +17,7 @@ import type {
   FunRoundDetail,
   FunRoundPreview,
   JoinPreview,
+  CourseRecord,
   PlayerStats,
   Referrals,
   GroupCard,
@@ -47,6 +48,7 @@ export const keys = {
   funRoundPreview: (id: UUID) => ['fun-round', id, 'preview'] as const,
   join: (code: string) => ['join', code] as const,
   myStats: ['players', 'me', 'stats'] as const,
+  myCourses: ['players', 'me', 'stats', 'courses'] as const,
   myReferrals: ['players', 'me', 'referrals'] as const,
 };
 
@@ -422,5 +424,19 @@ export function useMyStats() {
   return useQuery({
     queryKey: keys.myStats,
     queryFn: () => api.get<PlayerStats>('/players/me/stats'),
+  });
+}
+
+/**
+ * Your record at each course you've played, hole by hole.
+ *
+ * Separate from `useMyStats` because it grows with every course somebody plays
+ * while the career figures do not, and the section is further down the page than
+ * the one people open it for.
+ */
+export function useMyCourseRecords() {
+  return useQuery({
+    queryKey: keys.myCourses,
+    queryFn: () => api.get<CourseRecord[]>('/players/me/stats/courses'),
   });
 }

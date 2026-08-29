@@ -151,3 +151,125 @@ async def test_a_virtual_player_never_appears_in_anyone_s_record(client, make_to
     assert career["holes_played"] == 0
     assert career["events_played"] == 0
     assert played["participant"] is not None
+
+
+# --- Per-course and per-hole records ----------------------------------------
+
+
+async def _course_records(client: AsyncClient, headers) -> list[dict]:
+    response = await client.get("/players/me/stats/courses", headers=headers)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def test_a_player_who_has_played_nothing_has_no_course_records(client, make_token):
+    fresh = await player(client, make_token, "fresh@example.com")
+
+    assert await _course_records(client, fresh) == []
+
+
+async def test_a_course_appears_with_its_holes_once_played(client, make_token):
+    organiser = await player(client, make_token, "organiser@example.com")
+    played = await _played_event(client, make_token, organiser, "guest@example.com")
+
+    records = await _course_records(client, played["guest"])
+
+    assert len(records) == 1
+    course = records[0]
+    assert course["rounds_played"] == 1
+    assert course["holes_played"] == 1
+    assert course["holes_won"] == 1
+    # One hole scored, so one hole record — not the three the loop covers.
+    assert len(course["holes"]) == 1
+    hole = course["holes"][0]
+    assert hole["times_played"] == 1
+    assert hole["best_strokes"] == 3
+    assert hole["average_strokes"] == 3.0
+    assert hole["holes_won"] == 1
+
+
+async def test_a_hole_played_twice_averages_and_keeps_the_best(client, make_token):
+    """The point of the feature: a record accumulates across visits."""
+    organiser = await player(client, make_token, "organiser@example.com")
+    course_id = await course(client, organiser, hole_count=3)
+    guest_headers = await player(client, make_token, "guest@example.com")
+
+    strokes_by_visit = (6, 4)
+    for taken in strokes_by_visit:
+        tournament_id = await tournament(client, organiser, course_id)
+        await set_status(client, organiser, tournament_id, TournamentStatus.REGISTRATION_OPEN)
+        joined = await client.post(
+            f"/tournaments/{tournament_id}/participants", headers=guest_headers, json={}
+        )
+        guest_participant = joined.json()["id"]
+        other = await add_virtual(client, organiser, tournament_id, "Someone")
+        await set_status(client, organiser, tournament_id, TournamentStatus.REGISTRATION_CLOSED)
+        drawn = await draw(client, organiser, tournament_id)
+        group = drawn.json()["groups"][0]
+        first_hole = sorted(group["holes"], key=lambda h: h["sequence"])[0]["hole_id"]
+        await client.post(
+            f"/groups/{group['id']}/holes/{first_hole}/scores",
+            headers=organiser,
+            json={"strokes": {guest_participant: taken, other: 5}},
+        )
+
+    records = await _course_records(client, guest_headers)
+
+    assert len(records) == 1, "one course, however many visits"
+    assert records[0]["rounds_played"] == 2
+    hole = records[0]["holes"][0]
+    assert hole["times_played"] == 2
+    assert hole["best_strokes"] == 4
+    assert hole["average_strokes"] == 5.0
+    # Won the 4 and lost the 6, against a 5 both times.
+    assert hole["holes_won"] == 1
+
+
+async def test_two_courses_are_kept_apart(client, make_token):
+    organiser = await player(client, make_token, "organiser@example.com")
+    first = await _played_event(client, make_token, organiser, "guest@example.com")
+    guest = first["guest"]
+
+    second_course = await course(client, organiser, hole_count=3)
+    tournament_id = await tournament(client, organiser, second_course)
+    await set_status(client, organiser, tournament_id, TournamentStatus.REGISTRATION_OPEN)
+    joined = await client.post(f"/tournaments/{tournament_id}/participants", headers=guest, json={})
+    participant = joined.json()["id"]
+    other = await add_virtual(client, organiser, tournament_id, "Someone")
+    await set_status(client, organiser, tournament_id, TournamentStatus.REGISTRATION_CLOSED)
+    drawn = await draw(client, organiser, tournament_id)
+    group = drawn.json()["groups"][0]
+    hole_id = sorted(group["holes"], key=lambda h: h["sequence"])[0]["hole_id"]
+    await client.post(
+        f"/groups/{group['id']}/holes/{hole_id}/scores",
+        headers=organiser,
+        json={"strokes": {participant: 7, other: 4}},
+    )
+
+    records = await _course_records(client, guest)
+
+    assert len(records) == 2
+    assert {record["course_id"] for record in records} == {
+        record["course_id"] for record in records
+    }
+    assert all(record["rounds_played"] == 1 for record in records)
+
+
+async def test_a_course_with_no_scores_is_not_a_record(client, make_token):
+    """Being drawn to play somewhere is not a record of having played it."""
+    organiser = await player(client, make_token, "organiser@example.com")
+    course_id = await course(client, organiser, hole_count=3)
+    tournament_id = await tournament(client, organiser, course_id)
+    await set_status(client, organiser, tournament_id, TournamentStatus.REGISTRATION_OPEN)
+    guest = await player(client, make_token, "guest@example.com")
+    await client.post(f"/tournaments/{tournament_id}/participants", headers=guest, json={})
+
+    assert await _course_records(client, guest) == []
+
+
+async def test_a_virtual_players_holes_belong_to_nobody(client, make_token):
+    organiser = await player(client, make_token, "organiser@example.com")
+    await _played_event(client, make_token, organiser, "guest@example.com")
+
+    # The organiser typed the virtual player's strokes but played nothing.
+    assert await _course_records(client, organiser) == []

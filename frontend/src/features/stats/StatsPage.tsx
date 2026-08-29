@@ -13,9 +13,9 @@
 import { Link } from 'react-router-dom';
 
 import { Card, Empty, ErrorNote, Loading, Page } from '../../components/ui';
-import { useMyStats } from '../../lib/queries';
+import { useMyCourseRecords, useMyStats } from '../../lib/queries';
 import { useSession } from '../auth/session-context';
-import type { Career, HistoryEntry } from '../../lib/types';
+import type { Career, CourseRecord, HistoryEntry } from '../../lib/types';
 
 export function StatsPage() {
   const { player } = useSession();
@@ -44,6 +44,8 @@ export function StatsPage() {
         )}
       </Card>
 
+      <CourseRecords />
+
       <Card>
         <h2>Round by round</h2>
         {history.length === 0 ? (
@@ -57,6 +59,74 @@ export function StatsPage() {
         )}
       </Card>
     </Page>
+  );
+}
+
+/**
+ * Where you've played, and how each hole has treated you.
+ *
+ * Only interesting once somebody has been round a course more than once, which
+ * is why the visit count leads each block — a single round's "average" is just
+ * that round, and saying so stops the number reading as more than it is.
+ */
+function CourseRecords() {
+  const courses = useMyCourseRecords();
+
+  if (courses.isPending) return null;
+  if (courses.error)
+    return (
+      <Card>
+        <h2>By course</h2>
+        <ErrorNote error={courses.error} />
+      </Card>
+    );
+  if (!courses.data?.length) return null;
+
+  return (
+    <Card>
+      <h2>By course</h2>
+      {courses.data.map((course) => (
+        <CourseBlock key={course.course_id} course={course} />
+      ))}
+    </Card>
+  );
+}
+
+function CourseBlock({ course }: { course: CourseRecord }) {
+  return (
+    <section className="course-record">
+      <h3>
+        {course.course_name}{' '}
+        <span className="muted small">
+          {course.rounds_played} {course.rounds_played === 1 ? 'round' : 'rounds'} ·{' '}
+          {course.average_strokes.toFixed(2)} per hole
+        </span>
+      </h3>
+      <table className="board">
+        <thead>
+          <tr>
+            <th>Hole</th>
+            <th>Played</th>
+            <th>Avg</th>
+            <th>Best</th>
+            <th>Won</th>
+          </tr>
+        </thead>
+        <tbody>
+          {course.holes.map((hole) => (
+            <tr key={hole.hole_number}>
+              <td>{hole.hole_number}</td>
+              <td>{hole.times_played}</td>
+              <td>{hole.average_strokes.toFixed(2)}</td>
+              <td>{hole.best_strokes}</td>
+              <td>
+                {hole.holes_won}/{hole.times_played}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
   );
 }
 
