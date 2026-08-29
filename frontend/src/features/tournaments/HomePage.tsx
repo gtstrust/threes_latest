@@ -12,6 +12,7 @@ import { Link } from 'react-router-dom';
 
 import { Card, Empty, ErrorNote, Loading, Page } from '../../components/ui';
 import { useFunRounds, useOrganising, usePlaying } from '../../lib/queries';
+import { ReferralCard } from '../referrals/ReferralCard';
 import { useSession } from '../auth/session-context';
 import { signOut } from '../../lib/supabase';
 import type { FunRound, FunRoundStatus, Tournament } from '../../lib/types';
@@ -74,9 +75,7 @@ export function HomePage() {
         <h2>Fun rounds</h2>
         {funRounds.isPending && <Loading />}
         <ErrorNote error={funRounds.error} />
-        {funRounds.data && funRounds.data.length > 0 && (
-          <FunRoundList funRounds={funRounds.data} />
-        )}
+        {funRounds.data && funRounds.data.length > 0 && <FunRoundList funRounds={funRounds.data} />}
         <Link to="/rounds/new" className="button-link">
           Start a fun round
         </Link>
@@ -105,6 +104,8 @@ export function HomePage() {
           Set up a tournament
         </Link>
       </Card>
+
+      <ReferralCard />
     </Page>
   );
 }

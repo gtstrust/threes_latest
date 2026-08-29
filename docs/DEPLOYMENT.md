@@ -56,8 +56,16 @@ fly secrets set \
   SUPABASE_KEY="sb_secret_..." \
   SUPABASE_JWT_SECRET="$(openssl rand -base64 32)" \
   DATABASE_URL="postgresql+asyncpg://postgres.<ref>:<url-encoded-password>@aws-0-ap-southeast-2.pooler.supabase.com:5432/postgres" \
-  CORS_ORIGINS="https://<your-project>.pages.dev"
+  CORS_ORIGINS="https://<your-project>.pages.dev" \
+  APP_URL="https://<your-project>.pages.dev" \
+  RESEND_API_KEY="re_..." \
+  EMAIL_FROM="Threes <noreply@your-domain.com>" \
+  CRON_SECRET="$(openssl rand -base64 32)"
 ```
+
+`APP_URL`, `RESEND_API_KEY`, `EMAIL_FROM` and `CRON_SECRET` are for reminders. Leave the mail two
+unset and the app runs with a `NullMailer` — everything works, nothing sends, which is a reasonable
+way to deploy first and switch mail on later.
 
 Three of those have a trap in them.
 
@@ -135,7 +143,23 @@ In **Authentication → URL Configuration**:
 
 ---
 
-## 4. Rotate the database password
+## 4. Reminders
+
+Only needed when you want the app mailing players.
+
+1. Create a Resend account and **verify the sending domain**. An unverified domain is accepted by
+   the API and then quietly not delivered, which looks exactly like the feature not working.
+2. Set `RESEND_API_KEY` and `EMAIL_FROM` (above). `EMAIL_FROM` must be on the verified domain.
+3. Set `APP_URL` to the Pages URL. Links in reminder emails are built from it, and a wrong value
+   produces mail whose links reach nobody — worse than mail that doesn't send.
+4. For the day-before sweep, add two repository secrets under the `production` environment:
+   `API_BASE_URL` (the Fly URL) and `CRON_SECRET` (**the same value** as the Fly secret). The
+   `Reminder Sweep` workflow runs hourly and can be triggered by hand to check it.
+
+The sweep endpoint refuses everything while `CRON_SECRET` is unset — a route that mails an entire
+field must not default to open — and answers 404 rather than advertising that it exists.
+
+## 5. Rotate the database password
 
 Do this once, at the end of the first deploy. The password has been handled during development and
 should not be the one a production database keeps.

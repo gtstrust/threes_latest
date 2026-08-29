@@ -12,9 +12,11 @@ from app.models.tournament import Tournament, TournamentKind
 from app.services.course import CourseService
 from app.services.fun_round import FunRoundService
 from app.services.leaderboard import LeaderboardService
+from app.services.mail import Mailer, build_mailer
 from app.services.participant import ParticipantService
 from app.services.player import PlayerService
 from app.services.realtime import RealtimeNotifier, build_notifier
+from app.services.reminders import ReminderService
 from app.services.round import RoundService
 from app.services.score_entry import ScoreEntryService
 from app.services.tournament import TournamentService
@@ -88,6 +90,23 @@ async def get_leaderboard_service(
     return LeaderboardService(session)
 
 
+async def get_mailer() -> Mailer:
+    """The mail sender — a no-op unless a provider is configured.
+
+    A dependency rather than a module-level singleton for the same reason
+    `get_realtime_notifier` is one: `tests/conftest.py` overrides it so the suite
+    can never send real mail, whatever a developer's `.env` happens to hold.
+    """
+    return build_mailer()
+
+
+async def get_reminder_service(
+    session: Annotated[AsyncSession, Depends(get_db)],
+    mailer: Annotated[Mailer, Depends(get_mailer)],
+) -> ReminderService:
+    return ReminderService(session, mailer)
+
+
 async def get_realtime_notifier() -> RealtimeNotifier:
     """The Realtime signal sender — a no-op unless Supabase is configured.
 
@@ -108,6 +127,8 @@ FunRoundServiceDep = Annotated[FunRoundService, Depends(get_fun_round_service)]
 ScoreEntryServiceDep = Annotated[ScoreEntryService, Depends(get_score_entry_service)]
 LeaderboardServiceDep = Annotated[LeaderboardService, Depends(get_leaderboard_service)]
 RealtimeNotifierDep = Annotated[RealtimeNotifier, Depends(get_realtime_notifier)]
+MailerDep = Annotated[Mailer, Depends(get_mailer)]
+ReminderServiceDep = Annotated[ReminderService, Depends(get_reminder_service)]
 
 
 def require_course_owner(course: Course, current_user: CurrentUser) -> None:

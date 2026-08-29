@@ -60,6 +60,7 @@ const TOURNAMENT = {
   name: 'Acme Corporate Day',
   organiser_id: PLAYER_ID,
   join_code: CODE,
+  max_players: null,
   status: 'ROUND_IN_PROGRESS',
   format: 'ROUND_ROBIN',
   course_id: 'course-1',
@@ -399,6 +400,74 @@ describe('screens render', () => {
 
     expect(await screen.findByText(/you.re not in this event/i)).toBeInTheDocument();
     expect(screen.getByText(/ask the organiser for the join link/i)).toBeInTheDocument();
+  });
+
+  it('shows the field against its cap, and says so when it is full', async () => {
+    get.mockImplementation((path: string) =>
+      path === `/tournaments/${T}`
+        ? Promise.resolve({ ...TOURNAMENT, status: 'REGISTRATION_OPEN', max_players: 2 })
+        : path in ROUTES
+          ? Promise.resolve(ROUTES[path])
+          : Promise.reject(new Error(`unexpected GET ${path}`)),
+    );
+
+    show(<TournamentPage tournamentId={T} />);
+
+    // Two participants in the fixture, cap of two.
+    expect(await screen.findByText(/The field \(2 of 2\)/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/maximum players/i)).toBeInTheDocument();
+  });
+
+  it('a full event explains itself rather than offering a join button', async () => {
+    get.mockImplementation((path: string) => {
+      if (path === `/tournaments/${T}`)
+        return Promise.resolve({
+          ...TOURNAMENT,
+          organiser_id: 'someone-else',
+          join_code: null,
+          status: 'REGISTRATION_OPEN',
+          max_players: 2,
+        });
+      if (path === `/tournaments/${T}/participants`)
+        return Promise.resolve([
+          { id: 'p-a', tournament_id: T, player_id: 'a', display_name: 'A', is_virtual: false },
+          { id: 'p-b', tournament_id: T, player_id: 'b', display_name: 'B', is_virtual: false },
+        ]);
+      return path in ROUTES
+        ? Promise.resolve(ROUTES[path])
+        : Promise.reject(new Error(`unexpected GET ${path}`));
+    });
+
+    show(<TournamentPage tournamentId={T} />);
+
+    expect(await screen.findByText(/this event is full/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /i'm playing/i })).not.toBeInTheDocument();
+  });
+
+  it('the organiser can remind the field while it can still change', async () => {
+    get.mockImplementation((path: string) =>
+      path === `/tournaments/${T}`
+        ? Promise.resolve({ ...TOURNAMENT, status: 'REGISTRATION_OPEN' })
+        : path in ROUTES
+          ? Promise.resolve(ROUTES[path])
+          : Promise.reject(new Error(`unexpected GET ${path}`)),
+    );
+
+    show(<TournamentPage tournamentId={T} />);
+
+    expect(await screen.findByText('Remind the field')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /send a reminder/i })).toBeInTheDocument();
+    // Said up front, because a field of hand-added players has no addresses and
+    // an organiser should not discover that from a count of zero.
+    expect(screen.getByText(/no address to write to/i)).toBeInTheDocument();
+  });
+
+  it('does not offer a reminder once the round is under way', async () => {
+    // The fixture is ROUND_IN_PROGRESS: they are on the course.
+    show(<TournamentPage tournamentId={T} />);
+
+    await screen.findByText('Acme Corporate Day');
+    expect(screen.queryByText('Remind the field')).not.toBeInTheDocument();
   });
 
   it('the leaderboard shows positions, points and who is still out', async () => {

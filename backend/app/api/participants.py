@@ -14,6 +14,7 @@ from app.models.tournament import Tournament
 from app.schemas.participant import ParticipantRead, SelfRegister, VirtualPlayerCreate
 from app.services.participant import (
     AlreadyRegistered,
+    FieldFull,
     FieldLocked,
     PlayerProfileMissing,
     RegistrationClosed,
@@ -66,7 +67,7 @@ async def register_self(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No profile yet — call POST /players first",
         ) from None
-    except (RegistrationClosed, AlreadyRegistered) as exc:
+    except (RegistrationClosed, AlreadyRegistered, FieldFull) as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return ParticipantRead.model_validate(participant)
 

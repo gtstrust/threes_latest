@@ -20,6 +20,8 @@ export function NewTournamentPage() {
   const createTournament = useCreateTournament();
 
   const [name, setName] = useState('');
+  // Empty means no cap, which is the default and the common case.
+  const [cap, setCap] = useState('');
   const [failed, setFailed] = useState<unknown>(null);
 
   async function onSubmit(event: FormEvent) {
@@ -30,6 +32,7 @@ export function NewTournamentPage() {
       const tournament = await createTournament.mutateAsync({
         name,
         ...(chosen ? { course_id: chosen } : {}),
+        ...(cap ? { max_players: Number(cap) } : {}),
       });
       void navigate(`/t/${tournament.id}`);
     } catch (error) {
@@ -55,6 +58,21 @@ export function NewTournamentPage() {
           />
 
           {picker.element}
+
+          <label htmlFor="cap">Maximum players (optional)</label>
+          <input
+            id="cap"
+            type="number"
+            inputMode="numeric"
+            min={2}
+            value={cap}
+            onChange={(event) => setCap(event.target.value)}
+            placeholder="No limit"
+          />
+          <p className="muted small">
+            Stops the field growing past what you booked. Only applies to players joining themselves
+            — you can always add someone yourself.
+          </p>
 
           <button type="submit" disabled={busy || !name || picker.blocked}>
             {busy ? 'Creating…' : 'Create tournament'}

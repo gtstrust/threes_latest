@@ -64,6 +64,8 @@ export type Tournament = {
   organiser_id: UUID;
   /** The invitation — null unless you're the organiser, whose code it is to hand out. */
   join_code: string | null;
+  /** Optional ceiling on the field. Null means no cap; it only binds self-registration. */
+  max_players: number | null;
   status: TournamentStatus;
   format: 'ROUND_ROBIN';
   course_id: UUID | null;
@@ -213,3 +215,6 @@ export type JoinPreview = {
   can_join: boolean;
   status: TournamentStatus;
 };
+
+/** Your own referral code, and what it has brought in. Attribution only. */
+export type Referrals = { referral_code: string; players_referred: number };

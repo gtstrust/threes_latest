@@ -17,6 +17,7 @@ import type {
   FunRoundDetail,
   FunRoundPreview,
   JoinPreview,
+  Referrals,
   GroupCard,
   HoleResult,
   Leaderboard,
@@ -44,6 +45,7 @@ export const keys = {
   funRound: (id: UUID) => ['fun-round', id] as const,
   funRoundPreview: (id: UUID) => ['fun-round', id, 'preview'] as const,
   join: (code: string) => ['join', code] as const,
+  myReferrals: ['players', 'me', 'referrals'] as const,
 };
 
 // --- Tournaments -----------------------------------------------------------
@@ -135,9 +137,21 @@ export function useGroupCard(groupId: UUID) {
 export function useCreateTournament() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (body: { name: string; course_id?: UUID }) =>
+    mutationFn: (body: { name: string; course_id?: UUID; max_players?: number }) =>
       api.post<Tournament>('/tournaments', body),
     onSuccess: () => void client.invalidateQueries({ queryKey: keys.organising }),
+  });
+}
+
+/** Change a tournament's details. Today only the cap is edited after setup. */
+export function useUpdateTournament(id: UUID) {
+  const client = useQueryClient();
+  return useMutation({
+    // `max_players: null` clears the cap, which is why the value is nullable
+    // rather than optional — omitting it would leave the cap alone instead.
+    mutationFn: (body: { max_players?: number | null }) =>
+      api.patch<Tournament>(`/tournaments/${id}`, body),
+    onSuccess: () => void client.invalidateQueries({ queryKey: keys.tournament(id) }),
   });
 }
 
@@ -377,5 +391,26 @@ export function useRegenerateJoinCode(id: UUID) {
   return useMutation({
     mutationFn: () => api.post<{ join_code: string }>(`/tournaments/${id}/join-code`),
     onSuccess: () => void client.invalidateQueries({ queryKey: keys.tournament(id) }),
+  });
+}
+
+/** The caller's own referral code. No id in the path — their token is the filter. */
+export function useMyReferrals() {
+  return useQuery({
+    queryKey: keys.myReferrals,
+    queryFn: () => api.get<Referrals>('/players/me/referrals'),
+  });
+}
+
+/**
+ * Mail everyone in the field about an event. Organiser only.
+ *
+ * Resolves once the provider has accepted the messages, so `sent` is a real
+ * count rather than an acknowledgement — including zero, which is what a field
+ * of virtual players honestly comes to.
+ */
+export function useSendReminder(id: UUID) {
+  return useMutation({
+    mutationFn: () => api.post<{ sent: number }>(`/tournaments/${id}/reminders`),
   });
 }
