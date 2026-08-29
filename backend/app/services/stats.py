@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.tournament import Tournament, TournamentKind, TournamentStatus
 from app.repositories.participant import ParticipantRepository
-from app.repositories.score import ScoreRepository
+from app.repositories.score import HoleRecord, ScoreRepository
 from app.repositories.tournament import TournamentRepository
 from app.services.leaderboard import LeaderboardService
 
@@ -75,6 +75,47 @@ class HistoryEntry:
 
 
 @dataclass(frozen=True)
+class HoleFigures:
+    """How a player has fared on one hole of one course."""
+
+    hole_number: int
+    times_played: int
+    holes_won: int
+    best_strokes: int
+    average_strokes: float
+
+
+@dataclass(frozen=True)
+class CourseFigures:
+    """A player's record at one course, and hole by hole within it.
+
+    Course totals are summed from the hole rows rather than queried again: they
+    are the same numbers, and computing them twice is how two figures on one
+    screen come to disagree.
+    """
+
+    course_id: UUID
+    course_name: str
+    rounds_played: int
+    holes: list[HoleFigures]
+
+    @property
+    def holes_played(self) -> int:
+        return sum(hole.times_played for hole in self.holes)
+
+    @property
+    def holes_won(self) -> int:
+        return sum(hole.holes_won for hole in self.holes)
+
+    @property
+    def average_strokes(self) -> float:
+        played = self.holes_played
+        if not played:
+            return 0.0
+        return sum(hole.average_strokes * hole.times_played for hole in self.holes) / played
+
+
+@dataclass(frozen=True)
 class PlayerStats:
     career: CareerTotals
     history: list[HistoryEntry]
@@ -86,6 +127,44 @@ class StatsService:
         self._tournaments = TournamentRepository(session)
         self._participants = ParticipantRepository(session)
         self._leaderboard = LeaderboardService(session)
+
+    async def courses_for_player(self, player_id: UUID) -> list[CourseFigures]:
+        """A player's record at every course they have played, hole by hole.
+
+        Two aggregates stitched together rather than one query: round counts live
+        two joins further out than hole scores, and folding them into an aggregate
+        already grouped by hole would multiply each count by the holes played.
+
+        A course appears only once it has a scored hole. Being drawn to play
+        somewhere is not a record of having played it.
+        """
+        rounds = await self._scores.course_rounds_for_player(player_id)
+        hole_records = await self._scores.hole_records_for_player(player_id)
+
+        by_course: dict[UUID, list[HoleRecord]] = {}
+        for record in hole_records:
+            by_course.setdefault(record.course_id, []).append(record)
+
+        return [
+            CourseFigures(
+                course_id=course.course_id,
+                course_name=course.course_name,
+                rounds_played=course.rounds_played,
+                holes=[
+                    HoleFigures(
+                        hole_number=record.hole_number,
+                        times_played=record.times_played,
+                        holes_won=record.holes_won,
+                        best_strokes=record.best_strokes,
+                        average_strokes=record.total_strokes / record.times_played,
+                    )
+                    for record in sorted(
+                        by_course.get(course.course_id, []), key=lambda r: r.hole_number
+                    )
+                ],
+            )
+            for course in rounds
+        ]
 
     async def for_player(self, player_id: UUID) -> PlayerStats:
         """This player's career figures and recent events, newest first."""

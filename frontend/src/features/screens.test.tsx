@@ -506,6 +506,25 @@ describe('screens render', () => {
     expect(screen.queryByText('Remind the field')).not.toBeInTheDocument();
   });
 
+  it('your record shows career figures and the rounds behind them', async () => {
+    show(<StatsPage />);
+
+    expect(await screen.findByText('Career')).toBeInTheDocument();
+    expect(screen.getByText('Round by round')).toBeInTheDocument();
+    // Rounded server-side, shown as a share because 0.444 reads worse.
+    expect(screen.getByText('44%')).toBeInTheDocument();
+    expect(screen.getByText('4.22')).toBeInTheDocument();
+    expect(screen.getByText('Acme Corporate Day')).toBeInTheDocument();
+    expect(screen.getByText(/2nd/)).toBeInTheDocument();
+  });
+
+  it('an event you have not played yet is listed without a placing', async () => {
+    show(<StatsPage />);
+
+    expect(await screen.findByText('Saturday nine')).toBeInTheDocument();
+    expect(screen.getByText(/not played yet/i)).toBeInTheDocument();
+  });
+
   it('the leaderboard shows positions, points and who is still out', async () => {
     show(<LeaderboardPage tournamentId={T} />);
 

@@ -2,8 +2,14 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 
-from app.core.deps import CurrentUserDep, PlayerServiceDep, TournamentServiceDep
+from app.core.deps import (
+    CurrentUserDep,
+    PlayerServiceDep,
+    StatsServiceDep,
+    TournamentServiceDep,
+)
 from app.schemas.player import PlayerRead, PlayerUpdate, ProvisionProfile, ReferralsRead
+from app.schemas.stats import CourseRecordRead, PlayerStatsRead
 from app.schemas.tournament import TournamentRead
 
 router = APIRouter(prefix="/players", tags=["players"])
@@ -103,3 +109,36 @@ async def read_my_referrals(
         referral_code=player.referral_code,
         players_referred=await player_service.count_referred(player.id),
     )
+
+
+@router.get("/me/stats/courses", response_model=list[CourseRecordRead])
+async def read_my_course_records(
+    current_user: CurrentUserDep, stats: StatsServiceDep
+) -> list[CourseRecordRead]:
+    """The caller's record at each course they've played, hole by hole.
+
+    Separate from `/me/stats` rather than folded into it: this grows with every
+    course somebody plays, while the career figures and recent history do not,
+    and the page that opens on sign-in should not pay for a section further down
+    it. Own data only, so the caller's id is the filter and there is no guard to
+    add beyond the bearer token.
+    """
+    return [
+        CourseRecordRead.from_figures(figures)
+        for figures in await stats.courses_for_player(current_user.id)
+    ]
+
+
+@router.get("/me/stats", response_model=PlayerStatsRead)
+async def read_my_stats(current_user: CurrentUserDep, stats: StatsServiceDep) -> PlayerStatsRead:
+    """The caller's own record: career figures and their recent events.
+
+    No authorization guard beyond the bearer token, because there is nothing to
+    guard against — the caller's own id *is* the filter, so there is no id to
+    substitute for somebody else's. Reading another player's record is not a
+    permission this endpoint refuses; it is a thing it cannot express.
+
+    A player with no profile still gets an answer: an empty history and zeroes,
+    which is what somebody who has signed up and played nothing should see.
+    """
+    return PlayerStatsRead.from_stats(await stats.for_player(current_user.id))

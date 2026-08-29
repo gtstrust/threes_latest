@@ -5,10 +5,32 @@ from uuid import UUID
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.course import Course, Hole
 from app.models.participant import TournamentParticipant
 from app.models.round import Group, Round
 from app.models.score import HoleResult, HoleScore
 from app.services.scoring import DecidedBy
+
+
+@dataclass(frozen=True)
+class HoleRecord:
+    """One player's record on one hole of one course, over every time they played it."""
+
+    course_id: UUID
+    hole_number: int
+    times_played: int
+    holes_won: int
+    best_strokes: int
+    total_strokes: int
+
+
+@dataclass(frozen=True)
+class CourseRounds:
+    """How many distinct rounds a player has played at a course, and its name."""
+
+    course_id: UUID
+    course_name: str
+    rounds_played: int
 
 
 @dataclass(frozen=True)
@@ -90,6 +112,77 @@ class ScoreRepository:
         )
         points, strokes, holes = result.one()
         return ScoreTotals(points=int(points), strokes=int(strokes), holes_played=int(holes))
+
+    async def hole_records_for_player(self, player_id: UUID) -> list[HoleRecord]:
+        """Per-hole aggregates across every course this player has played.
+
+        One row per (course, hole number) rather than per hole *id*, because the
+        question is "how do I play the 3rd at Royal Melbourne", and a course that
+        had its holes re-entered would otherwise split one hole into two records.
+
+        Grouped on the hole number for the same reason `career_totals_for_player`
+        joins through `tournament_participants`: the identity that matters here is
+        the player's, and a Virtual Player has no `player_id` to match.
+        """
+        result = await self._session.execute(
+            select(
+                Hole.course_id,
+                Hole.hole_number,
+                func.count(HoleScore.id),
+                func.sum(HoleScore.points),
+                func.min(HoleScore.strokes),
+                func.sum(HoleScore.strokes),
+            )
+            .join(Hole, Hole.id == HoleScore.hole_id)
+            .join(
+                TournamentParticipant,
+                TournamentParticipant.id == HoleScore.participant_id,
+            )
+            .where(TournamentParticipant.player_id == player_id)
+            .group_by(Hole.course_id, Hole.hole_number)
+            .order_by(Hole.course_id, Hole.hole_number)
+        )
+        return [
+            HoleRecord(
+                course_id=course_id,
+                hole_number=hole_number,
+                times_played=int(played),
+                holes_won=int(won),
+                best_strokes=int(best),
+                total_strokes=int(total),
+            )
+            for course_id, hole_number, played, won, best, total in result.all()
+        ]
+
+    async def course_rounds_for_player(self, player_id: UUID) -> list[CourseRounds]:
+        """How many distinct rounds this player has played at each course.
+
+        A separate query from the per-hole one because "rounds" is a count of
+        something two joins further out (`groups` → `rounds`), and folding it into
+        an aggregate already grouped by hole would multiply the count by the
+        number of holes played. Two clean queries beat one clever one.
+        """
+        result = await self._session.execute(
+            select(
+                Course.id,
+                Course.name,
+                func.count(func.distinct(Group.round_id)),
+            )
+            .join(Hole, Hole.id == HoleScore.hole_id)
+            .join(Course, Course.id == Hole.course_id)
+            .join(Group, Group.id == HoleScore.group_id)
+            .join(
+                TournamentParticipant,
+                TournamentParticipant.id == HoleScore.participant_id,
+            )
+            .where(TournamentParticipant.player_id == player_id)
+            .group_by(Course.id, Course.name)
+            .order_by(Course.name)
+        )
+        return [
+            CourseRounds(course_id=course_id, course_name=name, rounds_played=int(rounds))
+            for course_id, name, rounds in result.all()
+        ]
 
     async def totals_for_round(self, round_id: UUID) -> dict[UUID, ScoreTotals]:
         """The same, narrowed to one round — one join rather than two."""

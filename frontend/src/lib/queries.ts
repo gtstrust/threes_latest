@@ -17,6 +17,7 @@ import type {
   FunRoundDetail,
   FunRoundPreview,
   JoinPreview,
+  PlayerStats,
   Referrals,
   GroupCard,
   HoleResult,
@@ -45,6 +46,7 @@ export const keys = {
   funRound: (id: UUID) => ['fun-round', id] as const,
   funRoundPreview: (id: UUID) => ['fun-round', id, 'preview'] as const,
   join: (code: string) => ['join', code] as const,
+  myStats: ['players', 'me', 'stats'] as const,
   myReferrals: ['players', 'me', 'referrals'] as const,
 };
 
@@ -412,5 +414,13 @@ export function useMyReferrals() {
 export function useSendReminder(id: UUID) {
   return useMutation({
     mutationFn: () => api.post<{ sent: number }>(`/tournaments/${id}/reminders`),
+  });
+}
+
+/** The caller's own record. No id in the path — their token is the filter. */
+export function useMyStats() {
+  return useQuery({
+    queryKey: keys.myStats,
+    queryFn: () => api.get<PlayerStats>('/players/me/stats'),
   });
 }

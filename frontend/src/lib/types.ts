@@ -218,3 +218,29 @@ export type JoinPreview = {
 
 /** Your own referral code, and what it has brought in. Attribution only. */
 export type Referrals = { referral_code: string; players_referred: number };
+
+/** Career figures, computed server-side so two clients can't divide differently. */
+export type Career = {
+  events_played: number;
+  holes_played: number;
+  /** Holes taken. Points and holes won are the same count — ADR-007 has no halves. */
+  holes_won: number;
+  total_strokes: number;
+  win_rate: number;
+  average_strokes: number;
+};
+
+export type HistoryEntry = {
+  tournament_id: UUID;
+  name: string;
+  kind: 'TOURNAMENT' | 'FUN_ROUND';
+  status: TournamentStatus;
+  played_at: string;
+  /** Null until they've scored a hole — in it, but with no placing yet. */
+  position: number | null;
+  points: number;
+  total_strokes: number;
+  holes_played: number;
+};
+
+export type PlayerStats = { career: Career; history: HistoryEntry[] };
