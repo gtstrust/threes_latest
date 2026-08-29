@@ -5,13 +5,16 @@ from fastapi import APIRouter, HTTPException, status
 from app.core.deps import (
     CurrentUserDep,
     ParticipantServiceDep,
+    ReminderServiceDep,
     TournamentServiceDep,
     reject_fun_round,
     require_can_view,
     require_organiser,
 )
 from app.models.tournament import Tournament
+from app.core.config import settings
 from app.schemas.join import JoinCodeRead
+from app.schemas.reminder import ReminderSentRead
 from app.services.participant import CapBelowField
 from app.schemas.tournament import (
     TournamentCreate,
@@ -90,6 +93,33 @@ async def regenerate_join_code(
     require_organiser(tournament, current_user)
     updated = await service.regenerate_join_code(tournament)
     return JoinCodeRead(join_code=updated.join_code)
+
+
+@router.post("/{tournament_id}/reminders", response_model=ReminderSentRead)
+async def send_reminder(
+    tournament_id: UUID,
+    current_user: CurrentUserDep,
+    service: TournamentServiceDep,
+    reminders: ReminderServiceDep,
+) -> ReminderSentRead:
+    """Mail everyone in the field about this event. Organiser only.
+
+    **Awaited, unlike the realtime broadcast.** That resemblance is misleading:
+    ADR-010 backgrounds the broadcast to avoid a client refetching before the
+    transaction commits, and no such hazard exists for an email. Backgrounding it
+    would also be a bug — `get_db` closes the session before background tasks run,
+    so the task would have nothing to query with.
+
+    The messages go out concurrently, so a field of twenty costs one round trip.
+    A send that fails is logged rather than raised; the count says how many
+    actually went, which is the honest answer to what the organiser asked.
+    """
+    tournament = await _get_or_404(tournament_id, service)
+    reject_fun_round(tournament)
+    require_organiser(tournament, current_user)
+
+    sent = await reminders.send_now(tournament, settings.app_url)
+    return ReminderSentRead(sent=sent)
 
 
 @router.patch("/{tournament_id}", response_model=TournamentRead)

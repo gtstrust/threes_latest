@@ -14,10 +14,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.core.config import settings
 from app.core.db import get_db
-from app.core.deps import get_realtime_notifier
+from app.core.deps import get_mailer, get_realtime_notifier
 from app.main import app
 from app.models.base import Base
 from app.models.score import HoleScore
+from app.services.mail import Message, NullMailer
 from app.services.realtime import NullNotifier
 
 TEST_JWT_SECRET = "dev-local-only-secret-change-me!"
@@ -119,6 +120,11 @@ async def client(engine, monkeypatch) -> AsyncGenerator[AsyncClient, None]:
     # next, fails with "Event loop is closed" the moment it does.
     app.dependency_overrides[get_realtime_notifier] = lambda: NullNotifier()
 
+    # Mail is off for the same reason, and the stake is higher: a developer whose
+    # .env holds a real Resend key would have the suite mailing real addresses.
+    # A test that wants to assert on messages installs a recorder itself.
+    app.dependency_overrides[get_mailer] = lambda: NullMailer()
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
@@ -186,4 +192,38 @@ async def notifier(client, engine) -> RecordingNotifier:
         return recorder
 
     app.dependency_overrides[get_realtime_notifier] = override_get_realtime_notifier
+    return recorder
+
+
+class RecordingMailer:
+    """Stands in for the real mailer and remembers what it was asked to send."""
+
+    def __init__(self) -> None:
+        self.messages: list[Message] = []
+
+    async def send(self, message: Message) -> bool:
+        self.messages.append(message)
+        return True
+
+
+class FailingMailer:
+    """A mailer that never succeeds, for asserting a failed send is survivable."""
+
+    def __init__(self) -> None:
+        self.attempts = 0
+
+    async def send(self, message: Message) -> bool:
+        self.attempts += 1
+        return False
+
+
+@pytest_asyncio.fixture
+async def mailer(client) -> RecordingMailer:
+    """Swap the mailer for one that records instead of sending.
+
+    Depends on `client` so it is installed after that fixture's NullMailer
+    default, rather than racing it.
+    """
+    recorder = RecordingMailer()
+    app.dependency_overrides[get_mailer] = lambda: recorder
     return recorder

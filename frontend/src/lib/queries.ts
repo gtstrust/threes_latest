@@ -401,3 +401,16 @@ export function useMyReferrals() {
     queryFn: () => api.get<Referrals>('/players/me/referrals'),
   });
 }
+
+/**
+ * Mail everyone in the field about an event. Organiser only.
+ *
+ * Resolves once the provider has accepted the messages, so `sent` is a real
+ * count rather than an acknowledgement — including zero, which is what a field
+ * of virtual players honestly comes to.
+ */
+export function useSendReminder(id: UUID) {
+  return useMutation({
+    mutationFn: () => api.post<{ sent: number }>(`/tournaments/${id}/reminders`),
+  });
+}

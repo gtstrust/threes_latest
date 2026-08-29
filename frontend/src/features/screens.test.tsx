@@ -444,6 +444,32 @@ describe('screens render', () => {
     expect(screen.queryByRole('button', { name: /i'm playing/i })).not.toBeInTheDocument();
   });
 
+  it('the organiser can remind the field while it can still change', async () => {
+    get.mockImplementation((path: string) =>
+      path === `/tournaments/${T}`
+        ? Promise.resolve({ ...TOURNAMENT, status: 'REGISTRATION_OPEN' })
+        : path in ROUTES
+          ? Promise.resolve(ROUTES[path])
+          : Promise.reject(new Error(`unexpected GET ${path}`)),
+    );
+
+    show(<TournamentPage tournamentId={T} />);
+
+    expect(await screen.findByText('Remind the field')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /send a reminder/i })).toBeInTheDocument();
+    // Said up front, because a field of hand-added players has no addresses and
+    // an organiser should not discover that from a count of zero.
+    expect(screen.getByText(/no address to write to/i)).toBeInTheDocument();
+  });
+
+  it('does not offer a reminder once the round is under way', async () => {
+    // The fixture is ROUND_IN_PROGRESS: they are on the course.
+    show(<TournamentPage tournamentId={T} />);
+
+    await screen.findByText('Acme Corporate Day');
+    expect(screen.queryByText('Remind the field')).not.toBeInTheDocument();
+  });
+
   it('the leaderboard shows positions, points and who is still out', async () => {
     show(<LeaderboardPage tournamentId={T} />);
 

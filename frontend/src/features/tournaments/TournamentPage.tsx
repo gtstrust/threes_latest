@@ -27,6 +27,7 @@ import {
   useRemoveParticipant,
   useRound,
   useRounds,
+  useSendReminder,
   useSetStatus,
   useTournament,
   useUpdateTournament,
@@ -126,6 +127,10 @@ export function TournamentPage({ tournamentId }: { tournamentId: UUID }) {
 
       {isOrganiser && FIELD_IS_EDITABLE.includes(status) && (
         <FieldCap tournamentId={tournamentId} current={event.max_players} />
+      )}
+
+      {isOrganiser && FIELD_IS_EDITABLE.includes(status) && (
+        <RemindField tournamentId={tournamentId} />
       )}
 
       {/* --- The player's own place in it -------------------------------- */}
@@ -321,6 +326,38 @@ function FieldCap({ tournamentId, current }: { tournamentId: UUID; current: numb
         </button>
       </form>
       <ErrorNote error={update.error} />
+    </Card>
+  );
+}
+
+/**
+ * Mailing the field about the event.
+ *
+ * Reports the count the API returns rather than "sent!", because zero is a real
+ * answer — a field of players added by hand has no addresses to write to, and an
+ * organiser who is told "sent" would go on believing they had been.
+ */
+function RemindField({ tournamentId }: { tournamentId: UUID }) {
+  const remind = useSendReminder(tournamentId);
+
+  return (
+    <Card>
+      <h2>Remind the field</h2>
+      <p className="muted small">
+        Emails everyone with an account about the event, with a link to their group. Players you
+        added yourself have no address to write to.
+      </p>
+      <button type="button" onClick={() => remind.mutate()} disabled={remind.isPending}>
+        {remind.isPending ? 'Sending…' : 'Send a reminder'}
+      </button>
+      {remind.data && (
+        <p className="muted small">
+          {remind.data.sent === 0
+            ? 'Nobody in this field has an account to email.'
+            : `Sent to ${remind.data.sent} ${remind.data.sent === 1 ? 'player' : 'players'}.`}
+        </p>
+      )}
+      <ErrorNote error={remind.error} />
     </Card>
   );
 }
