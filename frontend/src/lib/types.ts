@@ -215,3 +215,6 @@ export type JoinPreview = {
   can_join: boolean;
   status: TournamentStatus;
 };
+
+/** Your own referral code, and what it has brought in. Attribution only. */
+export type Referrals = { referral_code: string; players_referred: number };

@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, status
 
 from app.core.deps import CurrentUserDep, PlayerServiceDep, TournamentServiceDep
-from app.schemas.player import PlayerRead, PlayerUpdate
+from app.schemas.player import PlayerRead, PlayerUpdate, ProvisionProfile, ReferralsRead
 from app.schemas.tournament import TournamentRead
 
 router = APIRouter(prefix="/players", tags=["players"])
@@ -11,14 +11,22 @@ router = APIRouter(prefix="/players", tags=["players"])
 
 @router.post("", response_model=PlayerRead)
 async def provision_profile(
-    current_user: CurrentUserDep, player_service: PlayerServiceDep
+    current_user: CurrentUserDep,
+    player_service: PlayerServiceDep,
+    payload: ProvisionProfile | None = None,
 ) -> PlayerRead:
     """Idempotently ensure a profile row exists for the authenticated user.
 
     Intended to be called once by the client immediately after Supabase
     magic-link login. Safe to call repeatedly.
+
+    `referral_code` is honoured **only when the row is created**. This is called
+    on every login, so attributing an existing profile would let the last person
+    to send a link claim a player who has been here for months.
     """
-    player = await player_service.get_or_create_profile(current_user)
+    player = await player_service.get_or_create_profile(
+        current_user, payload.referral_code if payload else None
+    )
     return PlayerRead.model_validate(player)
 
 
@@ -78,3 +86,20 @@ async def read_player(
     if player is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found")
     return PlayerRead.model_validate(player)
+
+
+@router.get("/me/referrals", response_model=ReferralsRead)
+async def read_my_referrals(
+    current_user: CurrentUserDep, player_service: PlayerServiceDep
+) -> ReferralsRead:
+    """The caller's own referral code, and how many players arrived through it."""
+    player = await player_service.get_by_id(current_user.id)
+    if player is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No profile yet — call POST /players first",
+        )
+    return ReferralsRead(
+        referral_code=player.referral_code,
+        players_referred=await player_service.count_referred(player.id),
+    )

@@ -17,6 +17,7 @@ import type {
   FunRoundDetail,
   FunRoundPreview,
   JoinPreview,
+  Referrals,
   GroupCard,
   HoleResult,
   Leaderboard,
@@ -44,6 +45,7 @@ export const keys = {
   funRound: (id: UUID) => ['fun-round', id] as const,
   funRoundPreview: (id: UUID) => ['fun-round', id, 'preview'] as const,
   join: (code: string) => ['join', code] as const,
+  myReferrals: ['players', 'me', 'referrals'] as const,
 };
 
 // --- Tournaments -----------------------------------------------------------
@@ -389,5 +391,13 @@ export function useRegenerateJoinCode(id: UUID) {
   return useMutation({
     mutationFn: () => api.post<{ join_code: string }>(`/tournaments/${id}/join-code`),
     onSuccess: () => void client.invalidateQueries({ queryKey: keys.tournament(id) }),
+  });
+}
+
+/** The caller's own referral code. No id in the path — their token is the filter. */
+export function useMyReferrals() {
+  return useQuery({
+    queryKey: keys.myReferrals,
+    queryFn: () => api.get<Referrals>('/players/me/referrals'),
   });
 }

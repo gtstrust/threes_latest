@@ -17,6 +17,7 @@ import type { Session } from '@supabase/supabase-js';
 import { api, ApiError } from '../../lib/api';
 import { supabase } from '../../lib/supabase';
 import type { Player } from '../../lib/types';
+import { captureReferral, takeReferral } from './referral';
 import { SessionContext, type SessionState } from './session-context';
 
 export function SessionProvider({ children }: { children: ReactNode }) {
@@ -28,6 +29,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true;
+
+    // Before anything else: a referral code lives in the URL only until the
+    // magic-link round trip throws the query string away. See referral.ts.
+    captureReferral();
 
     supabase.auth.getSession().then(({ data }) => {
       if (!active) return;
@@ -54,7 +59,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     void (async () => {
       try {
         // Idempotent: safe on every sign-in, and the only way the row ever appears.
-        const profile = await api.post<Player>('/players', {});
+        // The referral code, if one survived the round trip, is honoured by the
+        // API only when it actually creates the row.
+        const referral_code = takeReferral();
+        const profile = await api.post<Player>('/players', referral_code ? { referral_code } : {});
         if (active) {
           setPlayer(profile);
           setError(null);
