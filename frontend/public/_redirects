@@ -1,0 +1,17 @@
+# Cloudflare Pages SPA fallback. Files in public/ are copied verbatim into
+# dist/, so this needs no build configuration.
+#
+# Not optional, and not merely cosmetic. Every link this app hands out is a deep
+# one opened *cold*, by someone who has never loaded the site in this tab:
+#
+#   /join/THR-8K2QF      scanned off a QR code at registration
+#   /t/{id}              texted round by the organiser
+#   /r/{id}/g/{groupId}  followed on a tee box
+#
+# Pages resolves a request against the built files before any JavaScript runs, and
+# none of those paths exist on disk. Without this line each one answers 404 and
+# React never gets the chance to route it — the invite mechanism looks broken to
+# exactly the people it was sent to.
+#
+# 200, not 301: the URL must stay as it was so the router can read it.
+/*  /index.html  200

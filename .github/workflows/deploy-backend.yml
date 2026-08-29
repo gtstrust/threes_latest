@@ -1,0 +1,52 @@
+name: Deploy Backend
+
+# Manual only. Nothing here fires on a merge — deploying is a decision someone
+# makes, not a side effect of landing a PR, and an event running on Saturday
+# should not be redeployed because a docs typo got fixed.
+#
+# To turn this into continuous deployment later, add the trigger below. That is
+# the whole change:
+#
+#   push:
+#     branches: [main]
+#     paths:
+#       - "backend/**"
+#       - ".github/workflows/deploy-backend.yml"
+on:
+  workflow_dispatch:
+
+# One deploy at a time. Two overlapping releases both run `alembic upgrade head`
+# as their release command, and concurrent migrations against one database is
+# not a race worth having.
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    # Environment rather than a bare secret so the token can be scoped, and so a
+    # required reviewer can be added later without touching this file.
+    environment: production
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      # --remote-only: build on Fly's builder rather than the runner, so the
+      # image is produced in the same place it will run and the runner needs no
+      # Docker layer caching to be quick.
+      #
+      # Migrations are not a step here. fly.toml's release_command runs them on
+      # the new image before it takes traffic, which means a failed migration
+      # aborts the release instead of leaving a half-migrated database serving.
+      - name: Deploy
+        run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
