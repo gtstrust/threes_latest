@@ -12,6 +12,7 @@ import { NewFunRoundPage } from './features/fun-rounds/NewFunRoundPage';
 import { FunRoundPage } from './features/fun-rounds/FunRoundPage';
 import { FunRoundLeaderboardPage } from './features/fun-rounds/FunRoundLeaderboardPage';
 import { JoinPage } from './features/join/JoinPage';
+import { StatsPage } from './features/stats/StatsPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -93,6 +94,9 @@ export default function App() {
               {/* The invitation. Shorter than either event path on purpose —
                   it gets printed on a sign and read out on a tee. */}
               <Route path="/join/:code" element={<JoinRoute />} />
+              {/* No id in the path: your token is the filter, so there is no
+                  other player's record this route could name. */}
+              <Route path="/me" element={<StatsPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </RequireAuth>

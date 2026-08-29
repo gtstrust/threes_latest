@@ -46,6 +46,7 @@ const { FunRoundPage } = await import('./fun-rounds/FunRoundPage');
 const { NewFunRoundPage } = await import('./fun-rounds/NewFunRoundPage');
 const { ApiError } = await import('../lib/api');
 const { JoinPage } = await import('./join/JoinPage');
+const { StatsPage } = await import('./stats/StatsPage');
 const { SessionContext } = await import('./auth/session-context');
 
 const PLAYER_ID = 'player-kim';
@@ -145,6 +146,41 @@ const ROUTES: Record<string, unknown> = {
     player_count: 2,
     can_join: true,
     status: 'REGISTRATION_OPEN',
+  },
+  '/players/me/stats': {
+    career: {
+      events_played: 3,
+      holes_played: 9,
+      holes_won: 4,
+      total_strokes: 38,
+      win_rate: 0.444,
+      average_strokes: 4.22,
+    },
+    history: [
+      {
+        tournament_id: T,
+        name: 'Acme Corporate Day',
+        kind: 'TOURNAMENT',
+        status: 'ROUND_IN_PROGRESS',
+        played_at: '2026-08-01T00:00:00Z',
+        position: 2,
+        points: 1,
+        total_strokes: 13,
+        holes_played: 3,
+      },
+      // In it, not played yet — listed without a placing it hasn't earned.
+      {
+        tournament_id: FR,
+        name: 'Saturday nine',
+        kind: 'FUN_ROUND',
+        status: 'REGISTRATION_OPEN',
+        played_at: '2026-08-02T00:00:00Z',
+        position: null,
+        points: 0,
+        total_strokes: 0,
+        holes_played: 0,
+      },
+    ],
   },
   '/courses': [
     { id: 'course-1', name: 'Royal Melbourne', created_by: PLAYER_ID, hole_count: 9 },

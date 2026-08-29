@@ -48,6 +48,22 @@ class TournamentRepository:
         )
         return result.scalars().all()
 
+    async def list_all_for_player(self, player_id: UUID) -> Sequence[Tournament]:
+        """Everything this player is in, both kinds, newest first.
+
+        The same join as `list_for_player` without the discriminator. Kept
+        separate rather than making `kind` optional there, because every existing
+        caller wants exactly one kind and a nullable filter would make it easy to
+        write a listing that quietly mixes them.
+        """
+        result = await self._session.execute(
+            select(Tournament)
+            .join(TournamentParticipant, TournamentParticipant.tournament_id == Tournament.id)
+            .where(TournamentParticipant.player_id == player_id)
+            .order_by(Tournament.created_at.desc())
+        )
+        return result.scalars().all()
+
     async def get_by_join_code(self, code: str) -> Tournament | None:
         """Resolve an invitation. `code` must already be in its stored (upper) form."""
         result = await self._session.execute(select(Tournament).where(Tournament.join_code == code))

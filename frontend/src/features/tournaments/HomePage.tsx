@@ -69,7 +69,9 @@ export function HomePage() {
         </button>
       }
     >
-      <p className="muted">{player?.display_name ?? player?.email}</p>
+      <p className="muted">
+        {player?.display_name ?? player?.email} · <Link to="/me">Your golf</Link>
+      </p>
 
       <Card>
         <h2>Fun rounds</h2>

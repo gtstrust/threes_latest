@@ -378,3 +378,26 @@ select {
   background: #ffffff;
   border-radius: 8px;
 }
+
+/* Career figures. A grid rather than a list because they are scanned against
+   each other, and auto-fit means the same markup reads on a phone and a laptop
+   without a breakpoint to maintain. */
+.figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.figures dt {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.figures dd {
+  margin: 0.15rem 0 0;
+  font-size: 1.35rem;
+  font-weight: 600;
+  /* Tabular so the column of numbers lines up as it changes. */
+  font-variant-numeric: tabular-nums;
+}
