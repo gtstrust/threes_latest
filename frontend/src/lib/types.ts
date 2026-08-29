@@ -69,6 +69,12 @@ export type Tournament = {
   status: TournamentStatus;
   format: 'ROUND_ROBIN';
   course_id: UUID | null;
+  /**
+   * When it's played, as an instant. Null means no date — and an event with no
+   * date is one the day-before reminder sweep never finds, which is why this is
+   * worth setting even though nothing about play depends on it.
+   */
+  scheduled_at: string | null;
   created_at: string;
   updated_at: string;
 };

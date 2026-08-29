@@ -420,3 +420,32 @@ select {
 .course-record .board td {
   font-variant-numeric: tabular-nums;
 }
+
+/* The scorecard grid. Narrow hole columns and a name column that takes what's
+   left, so three holes and a total fit a phone without scrolling sideways. */
+.card-grid td,
+.card-grid th {
+  padding: 0.55rem 0.25rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.card-grid td:first-child,
+.card-grid th:first-child {
+  text-align: left;
+  padding-left: 0;
+  font-variant-numeric: normal;
+}
+
+/* The hole a player took. A ring rather than a fill: the number is the content,
+   and a filled cell would make the strokes harder to read down the column. */
+.took {
+  display: inline-flex;
+  min-width: 1.9rem;
+  height: 1.9rem;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--green);
+  border-radius: 999px;
+  font-weight: 700;
+}

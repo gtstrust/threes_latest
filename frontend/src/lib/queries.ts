@@ -24,6 +24,7 @@ import type {
   HoleResult,
   Leaderboard,
   Participant,
+  Player,
   Round,
   RoundWithGroups,
   Tournament,
@@ -141,20 +142,30 @@ export function useGroupCard(groupId: UUID) {
 export function useCreateTournament() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (body: { name: string; course_id?: UUID; max_players?: number }) =>
-      api.post<Tournament>('/tournaments', body),
+    mutationFn: (body: {
+      name: string;
+      course_id?: UUID;
+      max_players?: number;
+      scheduled_at?: string;
+    }) => api.post<Tournament>('/tournaments', body),
     onSuccess: () => void client.invalidateQueries({ queryKey: keys.organising }),
   });
 }
 
-/** Change a tournament's details. Today only the cap is edited after setup. */
+/** Change a tournament's details: name, course, when it's played, and the cap. */
 export function useUpdateTournament(id: UUID) {
   const client = useQueryClient();
   return useMutation({
-    // `max_players: null` clears the cap, which is why the value is nullable
-    // rather than optional — omitting it would leave the cap alone instead.
-    mutationFn: (body: { max_players?: number | null }) =>
-      api.patch<Tournament>(`/tournaments/${id}`, body),
+    // Every field is nullable rather than merely optional, because the API
+    // distinguishes them: `exclude_unset` leaves an omitted field alone, while
+    // an explicit null clears it. That is the only way to remove a cap or a date
+    // once set.
+    mutationFn: (body: {
+      name?: string;
+      course_id?: UUID | null;
+      scheduled_at?: string | null;
+      max_players?: number | null;
+    }) => api.patch<Tournament>(`/tournaments/${id}`, body),
     onSuccess: () => void client.invalidateQueries({ queryKey: keys.tournament(id) }),
   });
 }
@@ -438,5 +449,20 @@ export function useMyCourseRecords() {
   return useQuery({
     queryKey: keys.myCourses,
     queryFn: () => api.get<CourseRecord[]>('/players/me/stats/courses'),
+  });
+}
+
+/**
+ * Change your own profile. Today that is the display name, which is what a
+ * leaderboard prints — without one it falls back to your email address.
+ *
+ * The caller is expected to follow a success with `retryProfile()` from the
+ * session context: the session holds its own copy of the player, and nothing
+ * here can reach in to update it.
+ */
+export function useUpdateProfile() {
+  return useMutation({
+    mutationFn: (body: { display_name: string }) =>
+      api.patch<Player>('/players/me', body),
   });
 }

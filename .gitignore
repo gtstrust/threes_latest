@@ -1,3 +1,7 @@
 # macOS Finder metadata. Created in any directory the Finder has looked at, so
 # it is ignored repo-wide rather than per-package.
 .DS_Store
+
+# Design canvas working files. The published canvas is the artefact; these are
+# the source it is re-seeded from and are kept out of the app's history.
+.design/

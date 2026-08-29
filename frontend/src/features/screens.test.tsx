@@ -47,6 +47,8 @@ const { NewFunRoundPage } = await import('./fun-rounds/NewFunRoundPage');
 const { ApiError } = await import('../lib/api');
 const { JoinPage } = await import('./join/JoinPage');
 const { StatsPage } = await import('./stats/StatsPage');
+const { TournamentSettingsPage } = await import('./tournaments/TournamentSettingsPage');
+const { ScorecardPage } = await import('./scoring/ScorecardPage');
 const { SessionContext } = await import('./auth/session-context');
 
 const PLAYER_ID = 'player-kim';
@@ -208,6 +210,35 @@ const ROUTES: Record<string, unknown> = {
       ],
     },
   ],
+  '/groups/group-1': {
+    id: 'group-1',
+    round_id: 'round-1',
+    group_number: 1,
+    members: [{ participant_id: 'p-kim' }, { participant_id: 'p-dave' }],
+    holes: [{ hole_id: 'h1', sequence: 1 }],
+  },
+  '/groups/group-1/scores': {
+    group_id: 'group-1',
+    holes: [
+      {
+        hole_id: 'h1',
+        // Nobody won it: the strokes tied and no tie-break separated them. A
+        // real outcome (ADR-007), and the card has to say so rather than
+        // showing a blank that reads as missing data.
+        winner_participant_id: null,
+        decided_by: 'no_winner',
+        closest_to_pin_participant_id: null,
+        longest_drive_participant_id: null,
+        scores: [
+          { participant_id: 'p-kim', strokes: 5, points: 0 },
+          { participant_id: 'p-dave', strokes: 5, points: 0 },
+        ],
+        tied_participants: [],
+        created_at: '',
+        updated_at: '',
+      },
+    ],
+  },
   '/courses': [
     { id: 'course-1', name: 'Royal Melbourne', created_by: PLAYER_ID, hole_count: 9 },
     // Created by this player and unplayable, which is the pair the picker has to
@@ -477,7 +508,8 @@ describe('screens render', () => {
 
     // Two participants in the fixture, cap of two.
     expect(await screen.findByText(/The field \(2 of 2\)/)).toBeInTheDocument();
-    expect(screen.getByLabelText(/maximum players/i)).toBeInTheDocument();
+    // The cap is edited on the settings screen now — one place, not two.
+    expect(screen.getByRole('link', { name: /event settings/i })).toBeInTheDocument();
   });
 
   it('a full event explains itself rather than offering a join button', async () => {
@@ -561,6 +593,45 @@ describe('screens render', () => {
     expect(screen.getByRole('columnheader', { name: 'Best' })).toBeInTheDocument();
     expect(screen.getByText('3.50')).toBeInTheDocument();
     expect(screen.getByText('2/2')).toBeInTheDocument();
+  });
+
+  it('event settings carries the date the reminder sweep depends on', async () => {
+    get.mockImplementation((path: string) =>
+      path === `/tournaments/${T}`
+        ? Promise.resolve({
+            ...TOURNAMENT,
+            status: 'REGISTRATION_OPEN',
+            scheduled_at: '2026-09-12T08:30:00+00:00',
+          })
+        : path in ROUTES
+          ? Promise.resolve(ROUTES[path])
+          : Promise.reject(new Error(`unexpected GET ${path}`)),
+    );
+
+    show(<TournamentSettingsPage tournamentId={T} />);
+
+    const when = await screen.findByLabelText(/date and tee time/i);
+    // Populated from the stored instant, not blank — the field has to show what
+    // is already set or an organiser will overwrite it with nothing.
+    expect((when as HTMLInputElement).value).toMatch(/^2026-09-12T/);
+    expect(screen.getByLabelText(/maximum players/i)).toBeInTheDocument();
+    expect(screen.getByText(/without a date, no reminder goes out/i)).toBeInTheDocument();
+  });
+
+  it('the scorecard says a halved hole was halved', async () => {
+    show(<ScorecardPage groupId="group-1" />);
+
+    expect(await screen.findByText(/how each hole went/i)).toBeInTheDocument();
+    // Not a blank, not an error — "nobody won it" is the outcome.
+    expect(screen.getByText(/nobody won it/i)).toBeInTheDocument();
+    expect(screen.getAllByText('5').length).toBeGreaterThan(0);
+  });
+
+  it('your profile offers a display name, since the fallback is your email', async () => {
+    show(<StatsPage />);
+
+    expect(await screen.findByLabelText(/display name/i)).toBeInTheDocument();
+    expect(screen.getByText(/your email address shows instead/i)).toBeInTheDocument();
   });
 
   it('the leaderboard shows positions, points and who is still out', async () => {
