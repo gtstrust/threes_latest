@@ -12,6 +12,7 @@ import { Link } from 'react-router-dom';
 
 import { Card, Empty, ErrorNote, Loading, Page } from '../../components/ui';
 import { useFunRounds, useOrganising, usePlaying } from '../../lib/queries';
+import { ReferralCard } from '../referrals/ReferralCard';
 import { useSession } from '../auth/session-context';
 import { signOut } from '../../lib/supabase';
 import type { FunRound, FunRoundStatus, Tournament } from '../../lib/types';
@@ -105,6 +106,8 @@ export function HomePage() {
           Set up a tournament
         </Link>
       </Card>
+
+      <ReferralCard />
     </Page>
   );
 }

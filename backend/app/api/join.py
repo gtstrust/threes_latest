@@ -26,6 +26,7 @@ from app.schemas.participant import ParticipantRead, SelfRegister
 from app.services.fun_round import FunRoundFull
 from app.services.participant import (
     AlreadyRegistered,
+    FieldFull,
     PlayerProfileMissing,
     RegistrationClosed,
 )
@@ -46,13 +47,22 @@ async def _by_code(code: str, tournaments: TournamentServiceDep) -> Tournament:
     return event
 
 
-async def _can_join(event: Tournament, fun_rounds: FunRoundServiceDep) -> bool:
-    """Whether the button would work, so the client can say why not."""
+async def _can_join(
+    event: Tournament,
+    participants: ParticipantServiceDep,
+    fun_rounds: FunRoundServiceDep,
+) -> bool:
+    """Whether the button would work, so the client can say why not.
+
+    Both kinds have a ceiling, reached differently: a fun round is one group and
+    so is fixed at four, while a tournament's is whatever the organiser set, if
+    anything.
+    """
     if event.status is not TournamentStatus.REGISTRATION_OPEN:
         return False
     if event.kind is TournamentKind.FUN_ROUND:
         return not await fun_rounds.is_full(event)
-    return True
+    return not await participants.is_full(event)
 
 
 @router.get("/{code}", response_model=JoinPreview)
@@ -72,7 +82,7 @@ async def preview_invitation(
         event,
         host_name=(host.display_name or host.email) if host else "Someone",
         player_count=len(field),
-        can_join=await _can_join(event, fun_rounds),
+        can_join=await _can_join(event, participants, fun_rounds),
     )
 
 
@@ -104,6 +114,6 @@ async def accept_invitation(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No profile yet — call POST /players first",
         ) from None
-    except (RegistrationClosed, AlreadyRegistered, FunRoundFull) as exc:
+    except (RegistrationClosed, AlreadyRegistered, FunRoundFull, FieldFull) as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return ParticipantRead.model_validate(participant)

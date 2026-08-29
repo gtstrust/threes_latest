@@ -2,14 +2,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 
-from app.core.deps import (
-    CurrentUserDep,
-    PlayerServiceDep,
-    StatsServiceDep,
-    TournamentServiceDep,
-)
-from app.schemas.player import PlayerRead, PlayerUpdate
-from app.schemas.stats import PlayerStatsRead
+from app.core.deps import CurrentUserDep, PlayerServiceDep, TournamentServiceDep
+from app.schemas.player import PlayerRead, PlayerUpdate, ProvisionProfile, ReferralsRead
 from app.schemas.tournament import TournamentRead
 
 router = APIRouter(prefix="/players", tags=["players"])
@@ -17,14 +11,22 @@ router = APIRouter(prefix="/players", tags=["players"])
 
 @router.post("", response_model=PlayerRead)
 async def provision_profile(
-    current_user: CurrentUserDep, player_service: PlayerServiceDep
+    current_user: CurrentUserDep,
+    player_service: PlayerServiceDep,
+    payload: ProvisionProfile | None = None,
 ) -> PlayerRead:
     """Idempotently ensure a profile row exists for the authenticated user.
 
     Intended to be called once by the client immediately after Supabase
     magic-link login. Safe to call repeatedly.
+
+    `referral_code` is honoured **only when the row is created**. This is called
+    on every login, so attributing an existing profile would let the last person
+    to send a link claim a player who has been here for months.
     """
-    player = await player_service.get_or_create_profile(current_user)
+    player = await player_service.get_or_create_profile(
+        current_user, payload.referral_code if payload else None
+    )
     return PlayerRead.model_validate(player)
 
 
@@ -86,16 +88,18 @@ async def read_player(
     return PlayerRead.model_validate(player)
 
 
-@router.get("/me/stats", response_model=PlayerStatsRead)
-async def read_my_stats(current_user: CurrentUserDep, stats: StatsServiceDep) -> PlayerStatsRead:
-    """The caller's own record: career figures and their recent events.
-
-    No authorization guard beyond the bearer token, because there is nothing to
-    guard against — the caller's own id *is* the filter, so there is no id to
-    substitute for somebody else's. Reading another player's record is not a
-    permission this endpoint refuses; it is a thing it cannot express.
-
-    A player with no profile still gets an answer: an empty history and zeroes,
-    which is what somebody who has signed up and played nothing should see.
-    """
-    return PlayerStatsRead.from_stats(await stats.for_player(current_user.id))
+@router.get("/me/referrals", response_model=ReferralsRead)
+async def read_my_referrals(
+    current_user: CurrentUserDep, player_service: PlayerServiceDep
+) -> ReferralsRead:
+    """The caller's own referral code, and how many players arrived through it."""
+    player = await player_service.get_by_id(current_user.id)
+    if player is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No profile yet — call POST /players first",
+        )
+    return ReferralsRead(
+        referral_code=player.referral_code,
+        players_referred=await player_service.count_referred(player.id),
+    )

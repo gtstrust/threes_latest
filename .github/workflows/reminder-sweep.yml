@@ -1,0 +1,48 @@
+name: Reminder Sweep
+
+# Mails the field of any tournament starting within a day that hasn't been told
+# yet. The endpoint is idempotent — it excludes events that already have an
+# UPCOMING reminder recorded — so a duplicate or retried run costs nothing.
+#
+# Hourly rather than daily: an event scheduled for 9am should not have its
+# reminder decided by what time a daily job happens to run. GitHub's cron can
+# fire up to ~15 minutes late and occasionally skips under load, which is
+# irrelevant for a day-ahead reminder and would not be for a tee-time one.
+on:
+  schedule:
+    - cron: "7 * * * *"
+  # So it can be run by hand after changing the secret, or to check it works.
+  workflow_dispatch:
+
+concurrency:
+  group: reminder-sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    # Two secrets, neither of which this workflow can usefully do without:
+    #   API_BASE_URL — where the deployed backend is
+    #   CRON_SECRET  — must match the backend's; without it the route 403s
+    environment: production
+
+    steps:
+      - name: Sweep
+        run: |
+          set -euo pipefail
+          response=$(curl -sS -w '\n%{http_code}' -X POST \
+            "${API_BASE_URL%/}/internal/reminders/sweep" \
+            -H "X-Cron-Key: ${CRON_SECRET}")
+          body=$(printf '%s' "$response" | sed '$d')
+          code=$(printf '%s' "$response" | tail -n1)
+
+          echo "$body"
+          # Fail loudly on anything but 200. A sweep that silently 403s for weeks
+          # is worse than one that never existed, because nobody looks.
+          if [ "$code" != "200" ]; then
+            echo "Sweep failed with HTTP $code" >&2
+            exit 1
+          fi
+        env:
+          API_BASE_URL: ${{ secrets.API_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}

@@ -7,7 +7,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # isn't ours. Same idea as `_LOCAL_DB_HOSTS` in tests/conftest.py: name the known
 # literals rather than guess at a pattern.
 PLACEHOLDER_SETTINGS = frozenset(
-    {"https://your-project.supabase.co", "your-service-role-key", "your-jwt-secret"}
+    {
+        "https://your-project.supabase.co",
+        "your-service-role-key",
+        "your-jwt-secret",
+        "re_your_resend_key",
+        "Threes <noreply@your-domain.com>",
+        "your-cron-secret",
+    }
 )
 
 
@@ -24,6 +31,24 @@ class Settings(BaseSettings):
     supabase_url: str | None = None
     supabase_key: str | None = None
     supabase_jwt_secret: str | None = None
+
+    # Outbound email. Both are needed before anything sends; either missing or
+    # still holding its placeholder means the app runs with a NullMailer, which
+    # is what keeps a fresh checkout from mailing anybody.
+    resend_api_key: str | None = None
+    email_from: str | None = None
+
+    # Shared secret for the reminder sweep, which is called by a scheduler rather
+    # than a person. Unset means the endpoint refuses everything — an unguarded
+    # route that mails an entire field is not a safe default, so "not configured"
+    # has to mean closed rather than open.
+    cron_secret: str | None = None
+
+    # Where the app lives, for links inside emails. Defaults to the dev server
+    # because that is where it lives while nobody has deployed it; production
+    # sets it to the real origin. A wrong value here produces mail whose links go
+    # somewhere nobody can reach, which is worse than mail that doesn't send.
+    app_url: str = "http://localhost:5173"
 
     # Port 5433, not 5432 — docker-compose publishes Postgres there to avoid clashing
     # with a locally-installed Postgres. Matches .env.example.

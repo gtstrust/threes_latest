@@ -84,6 +84,7 @@ class TournamentRepository:
             kind=kind,
             format=payload.format,
             course_id=payload.course_id,
+            max_players=payload.max_players,
             hole_numbers=list(hole_numbers) if hole_numbers is not None else None,
             scheduled_at=payload.scheduled_at,
             status=TournamentStatus.CREATED,
