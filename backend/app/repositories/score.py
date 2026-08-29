@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.participant import TournamentParticipant
 from app.models.round import Group, Round
 from app.models.score import HoleResult, HoleScore
 from app.services.scoring import DecidedBy
@@ -61,6 +62,34 @@ class ScoreRepository:
             .join(Round, Round.id == Group.round_id)
             .where(Round.tournament_id == tournament_id)
         )
+
+    async def career_totals_for_player(self, player_id: UUID) -> ScoreTotals:
+        """Everything one player has ever scored, across every event.
+
+        Keyed on the *player*, not a participant, so it reaches through
+        `tournament_participants` — the indirection that exists so a Virtual
+        Player can be scored like anyone else. A virtual player has no
+        `player_id`, so they never appear here, which is correct: nobody owns
+        those holes.
+
+        **`SUM(points)` is holes won.** ADR-007 makes a hole worth 1 or 0 with no
+        halves, so the same stored points that feed the leaderboard also answer
+        "how many holes has this player taken" without a second pass.
+        """
+        result = await self._session.execute(
+            select(
+                func.coalesce(func.sum(HoleScore.points), 0),
+                func.coalesce(func.sum(HoleScore.strokes), 0),
+                func.count(HoleScore.id),
+            )
+            .join(
+                TournamentParticipant,
+                TournamentParticipant.id == HoleScore.participant_id,
+            )
+            .where(TournamentParticipant.player_id == player_id)
+        )
+        points, strokes, holes = result.one()
+        return ScoreTotals(points=int(points), strokes=int(strokes), holes_played=int(holes))
 
     async def totals_for_round(self, round_id: UUID) -> dict[UUID, ScoreTotals]:
         """The same, narrowed to one round — one join rather than two."""

@@ -2,8 +2,14 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 
-from app.core.deps import CurrentUserDep, PlayerServiceDep, TournamentServiceDep
+from app.core.deps import (
+    CurrentUserDep,
+    PlayerServiceDep,
+    StatsServiceDep,
+    TournamentServiceDep,
+)
 from app.schemas.player import PlayerRead, PlayerUpdate
+from app.schemas.stats import PlayerStatsRead
 from app.schemas.tournament import TournamentRead
 
 router = APIRouter(prefix="/players", tags=["players"])
@@ -78,3 +84,18 @@ async def read_player(
     if player is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found")
     return PlayerRead.model_validate(player)
+
+
+@router.get("/me/stats", response_model=PlayerStatsRead)
+async def read_my_stats(current_user: CurrentUserDep, stats: StatsServiceDep) -> PlayerStatsRead:
+    """The caller's own record: career figures and their recent events.
+
+    No authorization guard beyond the bearer token, because there is nothing to
+    guard against — the caller's own id *is* the filter, so there is no id to
+    substitute for somebody else's. Reading another player's record is not a
+    permission this endpoint refuses; it is a thing it cannot express.
+
+    A player with no profile still gets an answer: an empty history and zeroes,
+    which is what somebody who has signed up and played nothing should see.
+    """
+    return PlayerStatsRead.from_stats(await stats.for_player(current_user.id))

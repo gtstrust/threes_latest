@@ -16,6 +16,7 @@ from app.services.participant import ParticipantService
 from app.services.player import PlayerService
 from app.services.realtime import RealtimeNotifier, build_notifier
 from app.services.round import RoundService
+from app.services.stats import StatsService
 from app.services.score_entry import ScoreEntryService
 from app.services.tournament import TournamentService
 
@@ -76,6 +77,12 @@ async def get_fun_round_service(
     return FunRoundService(session)
 
 
+async def get_stats_service(
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> StatsService:
+    return StatsService(session)
+
+
 async def get_score_entry_service(
     session: Annotated[AsyncSession, Depends(get_db)],
 ) -> ScoreEntryService:
@@ -105,6 +112,7 @@ CourseServiceDep = Annotated[CourseService, Depends(get_course_service)]
 ParticipantServiceDep = Annotated[ParticipantService, Depends(get_participant_service)]
 RoundServiceDep = Annotated[RoundService, Depends(get_round_service)]
 FunRoundServiceDep = Annotated[FunRoundService, Depends(get_fun_round_service)]
+StatsServiceDep = Annotated[StatsService, Depends(get_stats_service)]
 ScoreEntryServiceDep = Annotated[ScoreEntryService, Depends(get_score_entry_service)]
 LeaderboardServiceDep = Annotated[LeaderboardService, Depends(get_leaderboard_service)]
 RealtimeNotifierDep = Annotated[RealtimeNotifier, Depends(get_realtime_notifier)]

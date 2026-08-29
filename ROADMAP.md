@@ -119,7 +119,7 @@ deferred at MVP is now Phase 3 (below).
 | 3 | **Player caps** | An optional maximum field size per tournament, enforced at self-registration. | A `max_players` field on the tournament model/schema; a guard in `ParticipantService.self_register` (which enforces no maximum today). |
 | 4 | **Reminders** | Notify players of an upcoming event (and, later, that scoring is open). | An email/notification channel — **none exists yet** (no `EMAIL_FROM`, no outbound mail). This is the one item that pulls new infrastructure forward. |
 | 5 | **Referrals** | A referral loop so existing players bring new organisers/players. | Referral codes + attribution; overlaps with invites (#2) and the growth strategy stub. |
-| 6 | **Per-player stats / history** | A player's previous rounds and improvement tracking — by hole, by course, and overall. | A stats/aggregation read path across tournaments; today the only aggregates are the two per-tournament leaderboard sums. |
+| 6 | **Per-player stats / history** ✅ *built* | `GET /players/me/stats` — career figures (rounds, holes played, holes won, win rate, strokes per hole) plus every event you've been in, newest first, with your finishing position. Fun rounds included. | Finishing positions come from `LeaderboardService.for_tournament`, **not** a SQL `RANK() OVER (…)`: a window function would be a second copy of `rank_leaderboard`'s tie-break living where no Python test reaches, and a player told they came third here and second on the board has been lied to by one of them. Costs a query per event, bounded by a history limit. `SUM(points)` doubles as holes won, since ADR-007 has no halves. |
 
 ## Phase 3 — Later
 

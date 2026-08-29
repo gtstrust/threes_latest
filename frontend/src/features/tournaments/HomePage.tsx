@@ -68,15 +68,15 @@ export function HomePage() {
         </button>
       }
     >
-      <p className="muted">{player?.display_name ?? player?.email}</p>
+      <p className="muted">
+        {player?.display_name ?? player?.email} · <Link to="/me">Your golf</Link>
+      </p>
 
       <Card>
         <h2>Fun rounds</h2>
         {funRounds.isPending && <Loading />}
         <ErrorNote error={funRounds.error} />
-        {funRounds.data && funRounds.data.length > 0 && (
-          <FunRoundList funRounds={funRounds.data} />
-        )}
+        {funRounds.data && funRounds.data.length > 0 && <FunRoundList funRounds={funRounds.data} />}
         <Link to="/rounds/new" className="button-link">
           Start a fun round
         </Link>

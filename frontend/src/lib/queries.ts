@@ -17,6 +17,7 @@ import type {
   FunRoundDetail,
   FunRoundPreview,
   JoinPreview,
+  PlayerStats,
   GroupCard,
   HoleResult,
   Leaderboard,
@@ -44,6 +45,7 @@ export const keys = {
   funRound: (id: UUID) => ['fun-round', id] as const,
   funRoundPreview: (id: UUID) => ['fun-round', id, 'preview'] as const,
   join: (code: string) => ['join', code] as const,
+  myStats: ['players', 'me', 'stats'] as const,
 };
 
 // --- Tournaments -----------------------------------------------------------
@@ -377,5 +379,13 @@ export function useRegenerateJoinCode(id: UUID) {
   return useMutation({
     mutationFn: () => api.post<{ join_code: string }>(`/tournaments/${id}/join-code`),
     onSuccess: () => void client.invalidateQueries({ queryKey: keys.tournament(id) }),
+  });
+}
+
+/** The caller's own record. No id in the path — their token is the filter. */
+export function useMyStats() {
+  return useQuery({
+    queryKey: keys.myStats,
+    queryFn: () => api.get<PlayerStats>('/players/me/stats'),
   });
 }
