@@ -49,6 +49,7 @@ const { JoinPage } = await import('./join/JoinPage');
 const { StatsPage } = await import('./stats/StatsPage');
 const { TournamentSettingsPage } = await import('./tournaments/TournamentSettingsPage');
 const { ScorecardPage } = await import('./scoring/ScorecardPage');
+const { ScorePage } = await import('./scoring/ScorePage');
 const { SessionContext } = await import('./auth/session-context');
 
 const PLAYER_ID = 'player-kim';
@@ -719,6 +720,44 @@ describe('screens render', () => {
     expect(screen.getByText('Remind the field')).toBeInTheDocument();
     expect(screen.getByText('Invite players')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /event settings/i })).toBeInTheDocument();
+  });
+
+  it('marks the tie-break as a question, not another card', async () => {
+    // A hole the group still has to separate: strokes tied, no answer yet. The
+    // server populates tied_participants only while that is true.
+    get.mockImplementation((path: string) =>
+      path === '/groups/group-1/scores'
+        ? Promise.resolve({
+            group_id: 'group-1',
+            holes: [
+              {
+                ...(ROUTES['/groups/group-1/scores'] as { holes: object[] }).holes[0],
+                tied_participants: ['p-kim', 'p-dave'],
+              },
+            ],
+          })
+        : path in ROUTES
+          ? Promise.resolve(ROUTES[path])
+          : Promise.reject(new Error(`unexpected GET ${path}`)),
+    );
+
+    show(<ScorePage groupId="group-1" />);
+
+    // This is the one moment the screen asks rather than records, and it used to
+    // look like every other card.
+    expect(await screen.findByText(/tied on strokes/i)).toBeInTheDocument();
+    expect(screen.getByText(/who was closest to the pin/i)).toBeInTheDocument();
+  });
+
+  it('keeps the hole strip pressable, not decorative', async () => {
+    show(<ScorePage groupId="group-1" />);
+
+    // The restyle makes these read as state chips. They are still how somebody
+    // goes back to a hole they mis-keyed, so they have to stay buttons with the
+    // current one announced — the accessibility a decorative restyle drops.
+    const holes = await screen.findAllByRole('button', { name: /now|done|to play/i });
+    expect(holes.length).toBeGreaterThan(0);
+    expect(holes.some((hole) => hole.getAttribute('aria-current') === 'true')).toBe(true);
   });
 
   it('the leaderboard shows positions, points and who is still out', async () => {
