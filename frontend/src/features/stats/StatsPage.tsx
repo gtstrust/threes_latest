@@ -10,12 +10,19 @@
  * formatting.
  */
 
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Card, Empty, ErrorNote, Loading, Page } from '../../components/ui';
 import { useMyCourseRecords, useMyStats, useUpdateProfile } from '../../lib/queries';
 import { useSession } from '../auth/session-context';
+import {
+  applyTheme,
+  readPreference,
+  setPreference,
+  watchSystemTheme,
+  type ThemePreference,
+} from '../../lib/theme';
 import type { Career, CourseRecord, HistoryEntry } from '../../lib/types';
 
 export function StatsPage() {
@@ -37,6 +44,8 @@ export function StatsPage() {
       <p className="muted">{player?.email}</p>
 
       <DisplayName />
+
+      <Appearance />
 
       <Card>
         <h2>Career</h2>
@@ -111,6 +120,65 @@ function DisplayName() {
         </button>
       </form>
       <ErrorNote error={update.error} />
+    </Card>
+  );
+}
+
+/** What each choice actually does, said plainly — "System" is not obvious. */
+const APPEARANCE: { value: ThemePreference; label: string; note: string }[] = [
+  {
+    value: 'system',
+    label: 'System',
+    note: 'Follows your phone. Scoring stays bright, so it stays readable in sun.',
+  },
+  { value: 'light', label: 'Light', note: 'Bright everywhere. Best outdoors.' },
+  { value: 'dark', label: 'Dark', note: 'Dark everywhere, scoring included.' },
+];
+
+/**
+ * Which theme the app wears.
+ *
+ * Plain radios rather than a custom control: they work with a thumb, with a
+ * screen reader, and with the keyboard, none of which we would get for free
+ * otherwise. The same reasoning the login form uses for plain inputs.
+ */
+function Appearance() {
+  const [preference, setChoice] = useState<ThemePreference>(readPreference);
+
+  // Only matters while "System" is selected — a phone that flips to dark at
+  // sunset should take the app with it rather than waiting for a reload that,
+  // on a PWA left open in a cart, may never come.
+  useEffect(() => {
+    if (preference !== 'system') return;
+    return watchSystemTheme(() => applyTheme('system'));
+  }, [preference]);
+
+  function choose(next: ThemePreference) {
+    setChoice(next);
+    setPreference(next);
+  }
+
+  return (
+    <Card>
+      <h2>Appearance</h2>
+      <fieldset className="choices-list">
+        <legend className="visually-hidden">Appearance</legend>
+        {APPEARANCE.map((option) => (
+          <label key={option.value} className="choice">
+            <input
+              type="radio"
+              name="appearance"
+              value={option.value}
+              checked={preference === option.value}
+              onChange={() => choose(option.value)}
+            />
+            <span>
+              <span className="list-name">{option.label}</span>
+              <span className="muted small"> {option.note}</span>
+            </span>
+          </label>
+        ))}
+      </fieldset>
     </Card>
   );
 }

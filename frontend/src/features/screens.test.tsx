@@ -634,6 +634,31 @@ describe('screens render', () => {
     expect(screen.getByText(/your email address shows instead/i)).toBeInTheDocument();
   });
 
+  it('offers the three appearance choices, saying what system does', async () => {
+    show(<StatsPage />);
+
+    // By role, not text: the fieldset carries a visually-hidden legend of the
+    // same name so the radio group is announced, which is correct and makes a
+    // plain text query ambiguous.
+    expect(await screen.findByRole('heading', { name: 'Appearance' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /system/i })).toBeChecked();
+    expect(screen.getByRole('radio', { name: /light/i })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /dark/i })).toBeInTheDocument();
+    // The behaviour that isn't obvious from the word "System".
+    expect(screen.getByText(/scoring stays bright/i)).toBeInTheDocument();
+  });
+
+  it('asks for the bright treatment on the screens used outdoors', async () => {
+    // The component's half of the sunlight rule. Whether it *wins* is CSS's
+    // half — `[data-theme-source="system"] .lit` — which jsdom does not apply,
+    // so this asserts the class is requested and theme.test.ts asserts the
+    // attribute that decides it.
+    const { container } = show(<ScorecardPage groupId="group-1" />);
+
+    await screen.findByText(/how each hole went/i);
+    expect(container.querySelector('main')).toHaveClass('lit');
+  });
+
   it('the leaderboard shows positions, points and who is still out', async () => {
     show(<LeaderboardPage tournamentId={T} />);
 

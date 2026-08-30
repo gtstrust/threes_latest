@@ -7,6 +7,37 @@
     <meta name="theme-color" content="#0b0f0c" />
 
     <!--
+      Stamp the theme before first paint.
+
+      This has to be inline and here, ahead of the module bundle: a preference
+      read by React lands *after* the browser has already painted, so every load
+      would flash the wrong theme before correcting itself. There is no way to
+      fix that from inside the app — only to get in front of it.
+
+      Kept in step with src/lib/theme.ts, which owns the same two attributes once
+      the app is running. try/catch because storage throws in Safari's private
+      mode, and losing a preference is survivable where failing to render is not.
+    -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('threes.theme');
+          var chosen = stored === 'light' || stored === 'dark';
+          var root = document.documentElement;
+          root.dataset.theme = chosen
+            ? stored
+            : matchMedia('(prefers-color-scheme: dark)').matches
+              ? 'dark'
+              : 'light';
+          if (!chosen) root.dataset.themeSource = 'system';
+        } catch (e) {
+          document.documentElement.dataset.theme = 'dark';
+          document.documentElement.dataset.themeSource = 'system';
+        }
+      })();
+    </script>
+
+    <!--
       Archivo carries the headings and every number. Body copy stays on the
       system stack, so the thing ADR-006 actually argued about — first paint on
       4G — is unchanged: nothing here blocks text from rendering.
