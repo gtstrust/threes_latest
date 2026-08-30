@@ -18,7 +18,14 @@
  * than remembered per component.
  */
 
-:root {
+/*
+ * Two token blocks and three selectors. The preference resolves to `light` or
+ * `dark` in src/lib/theme.ts before it reaches CSS, which is what keeps this to
+ * two blocks rather than four — "system" is not a third look, it is the absence
+ * of a choice.
+ */
+
+:root[data-theme='dark'] {
   /* Near-black with a green cast rather than neutral grey, so the app reads as
      one colour family instead of a green accent bolted to a grey shell. */
   --page: #0b0f0c;
@@ -34,23 +41,24 @@
   --warn: #fbbf24;
   --danger: #f87171;
 
-  --display: Archivo, system-ui, -apple-system, 'Segoe UI', sans-serif;
-
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  color: var(--ink);
-  background: var(--page);
-  /* 17px: comfortably above the 16px below which iOS Safari zooms on focus. */
-  font-size: 17px;
-  line-height: 1.5;
   color-scheme: dark;
 }
 
 /*
- * The on-course theme. Applied by class, not by `prefers-color-scheme`: which
- * screen you are on decides this, not what the phone is set to. A player
- * standing on a green in July gets the bright one whatever their settings say.
+ * Light, and the on-course exception — one selector each.
+ *
+ * `[data-theme-source='system'] .lit` is the whole sunlight rule: when the
+ * player has expressed no preference the app applies its own opinion and forces
+ * score entry and the scorecard bright, because a dark screen washes out in
+ * direct sun. The moment somebody actually chooses, `data-theme-source` is gone,
+ * this selector stops matching, and their choice holds everywhere — a Dark
+ * setting that visibly skipped two screens would read as a bug, not as care.
+ *
+ * Being CSS rather than a branch in JS is why no component knows about any of
+ * this: `Page` still just takes `theme="lit"`.
  */
-.lit {
+:root[data-theme='light'],
+:root[data-theme-source='system'] .lit {
   --page: #ffffff;
   --surface: #ffffff;
   --raised: #f1f4f1;
@@ -63,8 +71,22 @@
   --danger: #a4231f;
 
   color-scheme: light;
+}
+
+/* Applied wherever the tokens land, so a scoped `.lit` repaints its own area. */
+:root,
+.lit {
   background: var(--page);
   color: var(--ink);
+}
+
+:root {
+  --display: Archivo, system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  /* 17px: comfortably above the 16px below which iOS Safari zooms on focus. */
+  font-size: 17px;
+  line-height: 1.5;
 }
 
 * {
@@ -498,4 +520,59 @@ select {
   border: 2px solid var(--green);
   border-radius: 999px;
   font-weight: 700;
+}
+
+/* A radio list. Each row is a label wrapping its input, so the whole row —
+   including the explanation — is a hit target, which is what makes it usable
+   with a thumb. */
+.choices-list {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  /* Matches the list rows elsewhere: tall enough to hit without aiming. */
+  min-height: 3rem;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--border);
+  font-weight: 400;
+  font-size: 1rem;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.choice:last-child {
+  border-bottom: 0;
+}
+
+.choice input {
+  /* The native control, sized up — a 1rem radio is not a thumb target. */
+  width: 1.35rem;
+  height: 1.35rem;
+  min-height: 0;
+  margin: 0.15rem 0 0;
+  padding: 0;
+  accent-color: var(--green);
+  flex-shrink: 0;
+}
+
+/* For a legend that a screen reader needs and a sighted reader does not — the
+   card's own heading already says "Appearance". */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

@@ -1,0 +1,126 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&display=swap">
+  <style>
+    :root {
+      /* Dark: the brand register. Near-black with a green cast rather than
+         neutral grey, so the app reads as one colour family. */
+      --page: #0b0f0c;
+      --surface: #141a15;
+      --raised: #1c241d;
+      --line: #263028;
+      --ink: #f2f6f2;
+      --muted: #8fa091;
+      /* Luminous green for state. The shipped brand green (#1b5e20) is too
+         dark to carry contrast on near-black, so this is its bright sibling. */
+      --accent: #4ade80;
+      --accent-ink: #06210f;
+      --warn: #fbbf24;
+      --danger: #f87171;
+    }
+    .lit {
+      /* High-luminance: the on-course theme. Bright screens beat dark ones in
+         direct sun, which is where score entry actually happens. */
+      --page: #ffffff;
+      --surface: #ffffff;
+      --raised: #f1f4f1;
+      --line: #d9e0da;
+      --ink: #0d130e;
+      --muted: #5b665c;
+      --accent: #1b5e20;
+      --accent-ink: #ffffff;
+      --warn: #92610a;
+      --danger: #a4231f;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    a { color: var(--accent); }
+    a:hover { color: var(--ink); }
+    .scr {
+      width: 390px; min-height: 844px; background: var(--page); color: var(--ink);
+      font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+      font-size: 17px; line-height: 1.45; padding: 20px 18px 28px;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    /* Archivo only for display: headings and the big numbers. Body stays on the
+       system stack so first paint over 4G is unchanged. */
+    .dsp { font-family: Archivo, system-ui, sans-serif; font-weight: 800;
+           letter-spacing: -0.02em; margin: 0; }
+    h1.dsp { font-size: 28px; line-height: 1.1; }
+    h2.dsp { font-size: 13px; font-weight: 700; letter-spacing: 0.09em;
+             text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
+    .num { font-variant-numeric: tabular-nums; font-family: Archivo, system-ui, sans-serif; }
+    .card { background: var(--surface); border: 1px solid var(--line);
+            border-radius: 14px; padding: 16px; }
+    .btn { font: inherit; font-weight: 700; min-height: 48px; width: 100%;
+           border: 0; border-radius: 12px; background: var(--accent);
+           color: var(--accent-ink); cursor: pointer; display: flex;
+           align-items: center; justify-content: center; gap: 8px; }
+    .btn.sec { background: var(--raised); color: var(--ink);
+               border: 1px solid var(--line); }
+    .btn.ghost { background: transparent; color: var(--muted);
+                 border: 1px solid var(--line); min-height: 44px; }
+    .fld { font: inherit; color: var(--ink); background: var(--raised);
+           border: 1px solid var(--line); border-radius: 12px; min-height: 48px;
+           padding: 12px 14px; width: 100%; }
+    .lbl { font-size: 13px; font-weight: 700; color: var(--muted);
+           letter-spacing: 0.04em; text-transform: uppercase; }
+    .muted { color: var(--muted); }
+    .sm { font-size: 14px; }
+    .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .stack { display: flex; flex-direction: column; }
+    .pill { font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+            text-transform: uppercase; padding: 4px 9px; border-radius: 999px;
+            border: 1px solid var(--line); color: var(--muted); }
+    .pill.live { color: var(--accent-ink); background: var(--accent);
+                 border-color: transparent; }
+    .pill.warn { color: var(--warn); border-color: var(--warn); }
+  </style>
+</helmet>
+<div class="scr {{theme}}">
+
+  <div>
+    <span class="muted sm" style="font-weight:600">← Home</span>
+    <h1 class="dsp" style="font-size:26px; margin-top:10px">New tournament</h1>
+    <p class="muted sm" style="margin:4px 0 0">A structured event you run. Players join by link.</p>
+  </div>
+
+  <div class="card stack" style="gap:16px">
+    <div class="stack" style="gap:7px">
+      <label class="lbl" for="n">Event name</label>
+      <input class="fld" id="n" placeholder="Acme Corporate Day">
+    </div>
+    <div class="stack" style="gap:7px">
+      <label class="lbl" for="c">Course</label>
+      <select class="fld" id="c"><option>Royal Melbourne — 18 holes</option></select>
+      <p class="muted sm" style="margin:0">A course with no holes entered can't be played. Add one if it's yours.</p>
+    </div>
+    <div class="stack" style="gap:7px">
+      <label class="lbl" for="d">Date and tee time</label>
+      <input class="fld" id="d" type="datetime-local">
+    </div>
+    <div class="stack" style="gap:7px">
+      <label class="lbl" for="m">Maximum players <span style="text-transform:none; letter-spacing:0; font-weight:400">(optional)</span></label>
+      <input class="fld num" id="m" placeholder="No limit">
+    </div>
+    <button class="btn">Create tournament</button>
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;lit&quot;],&quot;default&quot;:&quot;lit&quot;,&quot;section&quot;:&quot;Theme&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.theme ?? 'dark' };
+  }
+}
+</script>
+</body>
+</html>

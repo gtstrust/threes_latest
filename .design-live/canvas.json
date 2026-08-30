@@ -1,0 +1,129 @@
+{
+  "artboards": [
+    {
+      "file": "Main.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 1180,
+      "h": 1180,
+      "title": "Design system"
+    },
+    {
+      "file": "Login.dc.html",
+      "x": 1280,
+      "y": 0,
+      "w": 390,
+      "h": 844
+    },
+    {
+      "file": "Home.dc.html",
+      "x": 1730,
+      "y": 0,
+      "w": 390,
+      "h": 844
+    },
+    {
+      "file": "Profile.dc.html",
+      "x": 2180,
+      "y": 0,
+      "w": 390,
+      "h": 980,
+      "title": "Profile"
+    },
+    {
+      "file": "StartTournament.dc.html",
+      "x": 0,
+      "y": 1300,
+      "w": 390,
+      "h": 844,
+      "title": "Start tournament"
+    },
+    {
+      "file": "StartRound.dc.html",
+      "x": 450,
+      "y": 1300,
+      "w": 390,
+      "h": 844,
+      "title": "Start round"
+    },
+    {
+      "file": "Tournament.dc.html",
+      "x": 900,
+      "y": 1300,
+      "w": 390,
+      "h": 960,
+      "title": "Tournament"
+    },
+    {
+      "file": "TournamentOptions.dc.html",
+      "x": 1350,
+      "y": 1300,
+      "w": 390,
+      "h": 844,
+      "title": "Event settings"
+    },
+    {
+      "file": "InviteQR.dc.html",
+      "x": 1800,
+      "y": 1300,
+      "w": 390,
+      "h": 844,
+      "title": "Invite + QR"
+    },
+    {
+      "file": "Join.dc.html",
+      "x": 2250,
+      "y": 1300,
+      "w": 390,
+      "h": 844
+    },
+    {
+      "file": "EnterScores.dc.html",
+      "x": 0,
+      "y": 2420,
+      "w": 390,
+      "h": 900,
+      "title": "Enter scores"
+    },
+    {
+      "file": "Scorecard.dc.html",
+      "x": 450,
+      "y": 2420,
+      "w": 390,
+      "h": 844
+    },
+    {
+      "file": "Leaderboard.dc.html",
+      "x": 900,
+      "y": 2420,
+      "w": 390,
+      "h": 844
+    }
+  ],
+  "annotations": [
+    {
+      "id": "row-brand",
+      "x": 1280,
+      "y": -110,
+      "w": 300,
+      "text": "Brand register — dark.\nLooked at indoors, in a cart, at a desk."
+    },
+    {
+      "id": "row-organiser",
+      "x": 0,
+      "y": 1190,
+      "w": 340,
+      "text": "Organiser flow. Event settings and Start tournament both carry the date field — without it the day-before reminder can never fire."
+    },
+    {
+      "id": "row-course",
+      "x": 0,
+      "y": 2310,
+      "w": 360,
+      "text": "On course — high-luminance by default. A dark screen washes out in direct sun, which is exactly where these two are used."
+    }
+  ],
+  "launch": {
+    "view": "canvas"
+  }
+}
