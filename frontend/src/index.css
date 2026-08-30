@@ -681,3 +681,29 @@ select {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
+
+/* --- Organiser screens -------------------------------------------------- */
+
+/* Course and time under the event's name. One line, muted, because it is
+   context for the heading rather than content of its own. */
+.meta {
+  margin: -0.15rem 0 1rem;
+}
+
+/* The join code, on the card the organiser reads it off. Larger than the body
+   because it gets read aloud across a car park. */
+.invite-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-align: center;
+  margin: 0.6rem 0 1rem;
+  color: var(--ink);
+}
+
+/* Your group, mid-round: the one card on this screen somebody opens the app
+   for. Bordered in the accent so it is found without reading. */
+.card.accent {
+  border-color: var(--green);
+}

@@ -48,7 +48,7 @@ export function InviteCard({
       <h2>Invite players</h2>
       <p className="muted small">{blurb}</p>
 
-      <p className="join-code">{code}</p>
+      <p className="invite-code">{code}</p>
       <QrCode text={link} label={`QR code for join code ${code}`} />
 
       <button type="button" onClick={() => void copy()}>

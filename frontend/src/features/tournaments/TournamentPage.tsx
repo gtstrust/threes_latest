@@ -102,41 +102,19 @@ export function TournamentPage({ tournamentId }: { tournamentId: UUID }) {
   const isFull = event.max_players !== null && (field.data?.length ?? 0) >= event.max_players;
 
   return (
-    <Page title={event.name} back={{ to: '/', label: 'Tournaments' }}>
-      <p>
-        <span className="badge">{readableStatus(status)}</span>
-        {course.data && <span className="muted"> · {course.data.name}</span>}
-        {readableWhen(event.scheduled_at) && (
-          <span className="muted"> · {readableWhen(event.scheduled_at)}</span>
-        )}
+    <Page
+      title={event.name}
+      back={{ to: '/', label: 'Tournaments' }}
+      actions={
+        <span className={status === 'ROUND_IN_PROGRESS' ? 'badge live' : 'badge'}>
+          {readableStatus(status)}
+        </span>
+      }
+    >
+      <p className="muted small meta">
+        {[course.data?.name, readableWhen(event.scheduled_at)].filter(Boolean).join(' · ') ||
+          'No course or date set yet'}
       </p>
-
-      {(status === 'ROUND_IN_PROGRESS' ||
-        status === 'ROUND_COMPLETE' ||
-        status === 'TOURNAMENT_COMPLETE') && (
-        <Link to={`/t/${tournamentId}/leaderboard`} className="button-link">
-          Leaderboard
-        </Link>
-      )}
-
-      {/* --- Handing the event out ---------------------------------------- */}
-      {isOrganiser && event.join_code && FIELD_IS_EDITABLE.includes(status) && (
-        <InviteCard
-          code={event.join_code}
-          blurb="Players scan this or follow the link, sign in, and they're in the field."
-          tournamentId={tournamentId}
-        />
-      )}
-
-      {isOrganiser && FIELD_IS_EDITABLE.includes(status) && (
-        <Link to={`/t/${tournamentId}/settings`} className="button-link">
-          Event settings
-        </Link>
-      )}
-
-      {isOrganiser && FIELD_IS_EDITABLE.includes(status) && (
-        <RemindField tournamentId={tournamentId} />
-      )}
 
       {/* --- The player's own place in it -------------------------------- */}
       {!me && status === 'REGISTRATION_OPEN' && (
@@ -159,6 +137,14 @@ export function TournamentPage({ tournamentId }: { tournamentId: UUID }) {
 
       {me && round.data && (
         <MyGroup round={round.data} participantId={me.id} field={field.data ?? []} />
+      )}
+
+      {(status === 'ROUND_IN_PROGRESS' ||
+        status === 'ROUND_COMPLETE' ||
+        status === 'TOURNAMENT_COMPLETE') && (
+        <Link to={`/t/${tournamentId}/leaderboard`} className="button-link">
+          Leaderboard
+        </Link>
       )}
 
       {/* --- The field ---------------------------------------------------- */}
@@ -218,6 +204,25 @@ export function TournamentPage({ tournamentId }: { tournamentId: UUID }) {
           </form>
         )}
       </Card>
+
+      {/* --- Handing the event out ---------------------------------------- */}
+      {isOrganiser && event.join_code && FIELD_IS_EDITABLE.includes(status) && (
+        <InviteCard
+          code={event.join_code}
+          blurb="Players scan this or follow the link, sign in, and they're in the field."
+          tournamentId={tournamentId}
+        />
+      )}
+
+      {isOrganiser && FIELD_IS_EDITABLE.includes(status) && (
+        <Link to={`/t/${tournamentId}/settings`} className="button-link">
+          Event settings
+        </Link>
+      )}
+
+      {isOrganiser && FIELD_IS_EDITABLE.includes(status) && (
+        <RemindField tournamentId={tournamentId} />
+      )}
 
       {/* --- Running the day ---------------------------------------------- */}
       {isOrganiser && (
@@ -344,7 +349,7 @@ function MyGroup({
     .filter(Boolean);
 
   return (
-    <Card>
+    <Card className="accent">
       <h2>Your group</h2>
       <p className="muted">Playing with {others.join(', ') || 'nobody yet'}</p>
       <Link to={`/g/${mine.id}`} className="button-link primary">
