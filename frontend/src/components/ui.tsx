@@ -74,8 +74,15 @@ export function Page({
   );
 }
 
-export function Card({ children }: { children: ReactNode }) {
-  return <section className="card">{children}</section>;
+/**
+ * A card, optionally with a variant class.
+ *
+ * `className` rather than a `variant` enum: there is exactly one variant today
+ * (`accent`, for the group card mid-round), and an enum for one value is a
+ * vocabulary nobody needs yet.
+ */
+export function Card({ children, className }: { children: ReactNode; className?: string }) {
+  return <section className={className ? `card ${className}` : 'card'}>{children}</section>;
 }
 
 export function Empty({ children }: { children: ReactNode }) {

@@ -683,6 +683,44 @@ describe('screens render', () => {
     expect(container.querySelector('main')).toHaveClass('lit');
   });
 
+  it('puts your group above the organiser controls', async () => {
+    show(<TournamentPage tournamentId={T} />);
+
+    // Wait for the group specifically: it depends on the round query, and
+    // findAllByRole resolves on the first heading to appear — which would
+    // collect the list before the group has arrived and compare against -1.
+    await screen.findByText('Your group');
+    const headings = screen.getAllByRole('heading').map((h) => h.textContent ?? '');
+    // By prefix: "The field" carries its count, so an exact match finds nothing
+    // and the comparison silently passes on -1 < -1 being false.
+    const at = (text: string) => headings.findIndex((h) => h.startsWith(text));
+
+    // Mid-round the group is what the screen is opened for; the invite card is
+    // what it was opened for a week earlier. Order is the whole point here.
+    expect(at('Your group')).toBeGreaterThanOrEqual(0);
+    expect(at('The field')).toBeGreaterThanOrEqual(0);
+    expect(at('Your group')).toBeLessThan(at('The field'));
+  });
+
+  it('keeps every organiser control the artboard does not show', async () => {
+    get.mockImplementation((path: string) =>
+      path === `/tournaments/${T}`
+        ? Promise.resolve({ ...TOURNAMENT, status: 'REGISTRATION_OPEN' })
+        : path in ROUTES
+          ? Promise.resolve(ROUTES[path])
+          : Promise.reject(new Error(`unexpected GET ${path}`)),
+    );
+
+    show(<TournamentPage tournamentId={T} />);
+
+    // The artboards are a visual target, not a feature list — a restyle that
+    // quietly drops the state machine or the draw would still look right.
+    expect(await screen.findByText('Run the day')).toBeInTheDocument();
+    expect(screen.getByText('Remind the field')).toBeInTheDocument();
+    expect(screen.getByText('Invite players')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /event settings/i })).toBeInTheDocument();
+  });
+
   it('the leaderboard shows positions, points and who is still out', async () => {
     show(<LeaderboardPage tournamentId={T} />);
 
