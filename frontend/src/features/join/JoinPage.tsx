@@ -33,13 +33,27 @@ export function JoinPage({ code }: { code: string }) {
   }
 
   return (
-    <Page title={invite.name} back={{ to: '/', label: 'Home' }}>
-      <Card>
-        <h2>You&rsquo;re invited</h2>
+    // Titled "Invitation" rather than the event's name: the block below owns the
+    // name at display size, and printing it in the header too said it twice.
+    <Page title="Invitation" back={{ to: '/', label: 'Home' }}>
+      <div className="invitation">
+        <h2 className="invitation-name">{invite.name}</h2>
         <p className="muted">
-          {invite.host_name} is running {invite.kind === 'fun_round' ? 'a fun round' : 'this event'}{' '}
-          — {invite.player_count} {invite.player_count === 1 ? 'player' : 'players'} in so far.
+          {invite.host_name} is running {invite.kind === 'fun_round' ? 'a fun round' : 'this event'}
         </p>
+
+        <Card>
+          <div className="detail">
+            <span className="muted small">Players in</span>
+            <span className="detail-value">{invite.player_count}</span>
+          </div>
+          <div className="detail">
+            <span className="muted small">Kind</span>
+            <span className="detail-value">
+              {invite.kind === 'fun_round' ? 'Fun round' : 'Tournament'}
+            </span>
+          </div>
+        </Card>
 
         {invite.can_join ? (
           <button
@@ -60,7 +74,8 @@ export function JoinPage({ code }: { code: string }) {
           </>
         )}
         <ErrorNote error={accept.error} />
-      </Card>
+        <p className="muted small invitation-code">{code}</p>
+      </div>
     </Page>
   );
 }

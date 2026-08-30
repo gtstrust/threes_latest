@@ -34,7 +34,8 @@ export function LoginPage() {
   if (sent) {
     return (
       <main className="centred">
-        <h1>Check your email</h1>
+        <Wordmark />
+        <h1 className="hero-title">Check your email</h1>
         <p>
           We sent a sign-in link to <strong>{email}</strong>. Open it on this device.
         </p>
@@ -47,8 +48,13 @@ export function LoginPage() {
 
   return (
     <main className="centred">
-      <h1>Threes</h1>
-      <p>Sign in with your email — no password to remember.</p>
+      <Wordmark />
+      <h1 className="hero-title">
+        Three holes.
+        <br />
+        One match.
+      </h1>
+      <p className="muted">Sign in with your email — no password to remember.</p>
       <form onSubmit={onSubmit}>
         <label htmlFor="email">Email</label>
         <input
@@ -68,6 +74,28 @@ export function LoginPage() {
         </button>
       </form>
       {error && <p role="alert">{error}</p>}
+      <p className="muted small">We&rsquo;ll email you a link that signs you in on this device.</p>
     </main>
+  );
+}
+
+/**
+ * The mark: a ball's dimples read as three, which is the format.
+ *
+ * Inline SVG rather than a file — it is nine elements, it inherits `currentColor`
+ * so it follows the theme without a second asset, and it costs no request on the
+ * one screen where first paint over 4G actually matters.
+ */
+function Wordmark() {
+  return (
+    <p className="wordmark">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
+        <circle cx="12" cy="8.4" r="1.5" fill="currentColor" />
+        <circle cx="8.9" cy="13.8" r="1.5" fill="currentColor" />
+        <circle cx="15.1" cy="13.8" r="1.5" fill="currentColor" />
+      </svg>
+      <span>Threes</span>
+    </p>
   );
 }

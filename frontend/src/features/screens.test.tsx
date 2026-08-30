@@ -73,7 +73,12 @@ const TOURNAMENT = {
 };
 
 const ROUTES: Record<string, unknown> = {
-  '/tournaments': [TOURNAMENT],
+  // Two: one being played (promoted to the hero) and one still open (in the
+  // list, where the role badge shows). Both organised by this player.
+  '/tournaments': [
+    TOURNAMENT,
+    { ...TOURNAMENT, id: 'tournament-2', name: 'Q3 Client Day', status: 'REGISTRATION_OPEN' },
+  ],
   '/players/me/tournaments': [TOURNAMENT],
   [`/tournaments/${T}`]: TOURNAMENT,
   [`/tournaments/${T}/participants`]: [
@@ -319,14 +324,28 @@ function show(ui: ReactNode) {
 }
 
 describe('screens render', () => {
-  it('home lists what you play and what you organise, separately', async () => {
+  it('lists every event once, badged with which you are', async () => {
     show(<HomePage />);
 
-    expect(await screen.findByText('Playing in')).toBeInTheDocument();
+    expect(await screen.findByText('Your events')).toBeInTheDocument();
+    // The fixture has the same event in both /tournaments and
+    // /players/me/tournaments — the organiser is playing too, which is the
+    // normal case for a corporate day. It used to appear in two lists; now it
+    // appears once, badged with the role that changes what the screen offers.
+    expect(await screen.findAllByText('Acme Corporate Day')).toHaveLength(1);
+    // The still-open event sits in the list, badged with the role that decides
+    // what the screen offers you.
+    expect(screen.getByText('Q3 Client Day')).toBeInTheDocument();
     expect(screen.getByText('Organising')).toBeInTheDocument();
-    // Both lists hold the same event — the organiser is playing too, which is
-    // the normal case for a corporate day, not duplication.
-    expect(await screen.findAllByText('Acme Corporate Day')).toHaveLength(2);
+  });
+
+  it('puts a live event above the list with a way straight into it', async () => {
+    show(<HomePage />);
+
+    // The fixture's tournament is ROUND_IN_PROGRESS.
+    expect(await screen.findByText('Playing')).toBeInTheDocument();
+    // Exact: a row for an event at "Registration open" matches a loose /open/i.
+    expect(screen.getByRole('link', { name: 'Open' })).toBeInTheDocument();
   });
 
   it('a tournament shows the field, the draw and the controls', async () => {
@@ -357,12 +376,14 @@ describe('screens render', () => {
     expect(await screen.findByRole('option', { name: /Royal Melbourne/ })).toBeInTheDocument();
   });
 
-  it('home offers fun rounds alongside tournaments', async () => {
+  it('shows fun rounds in the same list as tournaments', async () => {
     show(<HomePage />);
 
-    expect(await screen.findByText('Fun rounds')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /start a fun round/i })).toBeInTheDocument();
+    // One list, both kinds. A fun round carries no role badge — everybody in one
+    // is just playing.
     expect(await screen.findByText('Saturday nine')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /start a round/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /new tournament/i })).toBeInTheDocument();
   });
 
   it('a fun round lobby shows the field, an invite and a start control', async () => {
@@ -439,8 +460,11 @@ describe('screens render', () => {
   it('a join code shows what you were invited to, and a way in', async () => {
     show(<JoinPage code={CODE} />);
 
-    expect(await screen.findByText(/you.re invited/i)).toBeInTheDocument();
-    expect(screen.getByText(/Kim is running this event/)).toBeInTheDocument();
+    // The event's name leads now — there is nothing else on the screen to scan
+    // against, so a heading above a card only delayed the answer.
+    expect(await screen.findByText('Acme Corporate Day')).toBeInTheDocument();
+    expect(screen.getByText(/Kim is running/)).toBeInTheDocument();
+    expect(screen.getByText(CODE)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /i'm in/i })).toBeInTheDocument();
     // An invitation names the event, not its field.
     expect(screen.queryByText('Dave')).not.toBeInTheDocument();
