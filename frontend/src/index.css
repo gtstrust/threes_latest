@@ -576,3 +576,108 @@ select {
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+/* --- Brand screens ------------------------------------------------------ */
+
+.wordmark {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0 0 1.5rem;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 1.3rem;
+  letter-spacing: 0.02em;
+  color: var(--green);
+}
+
+/* The one place type is set larger than a heading: the sign-in screen has no
+   content to compete with, and it is the only screen that says what this is. */
+.hero-title {
+  font-size: 2.1rem;
+}
+
+/* An event being played right now. Bordered in the accent rather than filled —
+   a filled card at the top of the screen shouts, and this appears every time
+   somebody opens the app mid-round. */
+.live-name {
+  font-family: var(--display);
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  color: var(--ink);
+  margin: 0.5rem 0 0.9rem;
+}
+
+.badge.live {
+  background: var(--green);
+  border-color: transparent;
+  color: var(--on-green);
+}
+
+/* Badge and status on one row's tail, so the name keeps the space it needs and
+   long event names wrap rather than shoving the meta off-screen. */
+.row-tail {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+/* Two equal secondary actions. Grid rather than flex so they stay equal when
+   one label is longer than the other. */
+.button-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.button-pair .button-link {
+  /* The grid gives them their width; centring is the link's own job. */
+  width: 100%;
+}
+
+/* The invitation. Centred and vertical because it is the whole screen — there
+   is nothing to scan against, so the event's name should be the first thing
+   read rather than a heading above a card. */
+.invitation {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  text-align: center;
+  gap: 0.5rem;
+}
+
+.invitation-name {
+  font-family: var(--display);
+  font-size: 1.9rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  text-transform: none;
+  color: var(--ink);
+  margin: 0.6rem 0 0;
+}
+
+.invitation-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.1em;
+  margin-top: 0.5rem;
+}
+
+/* A label/value pair inside a card. Used on the invitation, and sized so the
+   value reads as the answer rather than as more prose. */
+.detail {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.35rem 0;
+}
+
+.detail-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}

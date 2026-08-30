@@ -1,57 +1,74 @@
 /**
- * Where everyone lands. Two lists, because the API answers two different
- * questions and conflating them would hide one of them.
+ * Where everyone lands, and — mid-round — the fastest way back to scoring.
  *
- * "Playing in" comes from `GET /players/me/tournaments`; "Organising" from
- * `GET /tournaments`. An organiser who also plays — the normal case for a
- * corporate day — appears in both, which is correct rather than duplication:
- * they have two roles and the screens differ.
+ * **One list, with a badge saying which you are.** This used to be two, on the
+ * reasoning that `GET /players/me/tournaments` and `GET /tournaments` answer
+ * different questions and merging them would hide one. True, but it made the
+ * reader do the work: an organiser who also plays — the normal case for a
+ * corporate day — appeared twice, and finding one event meant scanning two
+ * lists. A badge on the row answers the same question in the place you are
+ * already looking.
+ *
+ * The hero above it is what the screen is opened for during an event. Anything
+ * being played right now gets promoted out of the list with the one action that
+ * matters, so scoring is one tap from launch rather than three.
  */
 
 import { Link } from 'react-router-dom';
 
 import { Card, Empty, ErrorNote, Loading, Page } from '../../components/ui';
 import { useFunRounds, useOrganising, usePlaying } from '../../lib/queries';
-import { ReferralCard } from '../referrals/ReferralCard';
 import { useSession } from '../auth/session-context';
 import { signOut } from '../../lib/supabase';
-import type { FunRound, FunRoundStatus, Tournament } from '../../lib/types';
+import type { FunRound, Tournament, UUID } from '../../lib/types';
 import { readableStatus } from './format';
 
-function TournamentList({ tournaments }: { tournaments: Tournament[] }) {
-  return (
-    <ul className="list">
-      {tournaments.map((tournament) => (
-        <li key={tournament.id}>
-          <Link to={`/t/${tournament.id}`}>
-            <span className="list-name">{tournament.name}</span>
-            <span className="badge">{readableStatus(tournament.status)}</span>
-          </Link>
-        </li>
-      ))}
-    </ul>
-  );
-}
+/** One row of the list: an event of either kind, flattened. */
+type Entry = {
+  id: UUID;
+  name: string;
+  to: string;
+  status: string;
+  /** What you are in it. Null for a fun round, where everyone is just playing. */
+  role: 'Playing' | 'Organising' | null;
+  live: boolean;
+};
 
-const FUN_ROUND_LABEL: Record<FunRoundStatus, string> = {
+const FUN_ROUND_LABEL: Record<FunRound['status'], string> = {
   lobby: 'Getting ready',
   playing: 'Playing',
   finished: 'Finished',
 };
 
-function FunRoundList({ funRounds }: { funRounds: FunRound[] }) {
-  return (
-    <ul className="list">
-      {funRounds.map((funRound) => (
-        <li key={funRound.id}>
-          <Link to={`/r/${funRound.id}`}>
-            <span className="list-name">{funRound.name}</span>
-            <span className="badge">{FUN_ROUND_LABEL[funRound.status]}</span>
-          </Link>
-        </li>
-      ))}
-    </ul>
-  );
+/**
+ * Everything you are in, newest kind first, deduplicated.
+ *
+ * An event you organise *and* play appears once, badged "Organising" — that is
+ * the more specific of the two roles and the one that changes what the screen
+ * offers you.
+ */
+function entries(playing: Tournament[], organising: Tournament[], funRounds: FunRound[]): Entry[] {
+  const organisedIds = new Set(organising.map((t) => t.id));
+  const tournaments = [...organising, ...playing.filter((t) => !organisedIds.has(t.id))];
+
+  return [
+    ...funRounds.map((round) => ({
+      id: round.id,
+      name: round.name,
+      to: `/r/${round.id}`,
+      status: FUN_ROUND_LABEL[round.status],
+      role: null,
+      live: round.status === 'playing',
+    })),
+    ...tournaments.map((tournament) => ({
+      id: tournament.id,
+      name: tournament.name,
+      to: `/t/${tournament.id}`,
+      status: readableStatus(tournament.status),
+      role: organisedIds.has(tournament.id) ? ('Organising' as const) : ('Playing' as const),
+      live: tournament.status === 'ROUND_IN_PROGRESS',
+    })),
+  ];
 }
 
 export function HomePage() {
@@ -60,54 +77,85 @@ export function HomePage() {
   const organising = useOrganising();
   const funRounds = useFunRounds();
 
+  const loading = playing.isPending || organising.isPending || funRounds.isPending;
+  const error = playing.error ?? organising.error ?? funRounds.error;
+
+  const all = entries(playing.data ?? [], organising.data ?? [], funRounds.data ?? []);
+  const live = all.filter((entry) => entry.live);
+  const rest = all.filter((entry) => !entry.live);
+
   return (
     <Page
-      title="Threes"
+      title={player?.display_name ?? 'Threes'}
       actions={
         <button type="button" className="ghost" onClick={() => void signOut()}>
           Sign out
         </button>
       }
     >
-      <p className="muted">
-        {player?.display_name ?? player?.email} · <Link to="/me">Your golf</Link>
+      <p className="muted small">
+        {player?.display_name ? player.email : 'Signed in'} · <Link to="/me">Your golf</Link>
       </p>
 
-      <Card>
-        <h2>Fun rounds</h2>
-        {funRounds.isPending && <Loading />}
-        <ErrorNote error={funRounds.error} />
-        {funRounds.data && funRounds.data.length > 0 && <FunRoundList funRounds={funRounds.data} />}
-        <Link to="/rounds/new" className="button-link">
-          Start a fun round
-        </Link>
-      </Card>
+      {live.map((entry) => (
+        <LiveCard key={entry.id} entry={entry} />
+      ))}
 
       <Card>
-        <h2>Playing in</h2>
-        {playing.isPending && <Loading />}
-        <ErrorNote error={playing.error} />
-        {playing.data &&
-          (playing.data.length ? (
-            <TournamentList tournaments={playing.data} />
-          ) : (
-            <Empty>Nothing yet. An organiser will send you a link to join.</Empty>
-          ))}
-      </Card>
-
-      <Card>
-        <h2>Organising</h2>
-        {organising.isPending && <Loading />}
-        <ErrorNote error={organising.error} />
-        {organising.data && organising.data.length > 0 && (
-          <TournamentList tournaments={organising.data} />
+        <h2>Your events</h2>
+        {loading && <Loading />}
+        <ErrorNote error={error} />
+        {!loading && rest.length === 0 && live.length === 0 && (
+          <Empty>Nothing yet. Start a round, or open a link somebody sent you.</Empty>
         )}
-        <Link to="/new" className="button-link">
-          Set up a tournament
-        </Link>
+        {rest.length > 0 && (
+          <ul className="list">
+            {rest.map((entry) => (
+              <li key={entry.id}>
+                <Link to={entry.to}>
+                  <span className="list-name">{entry.name}</span>
+                  <span className="row-tail">
+                    {entry.role && <span className="badge">{entry.role}</span>}
+                    <span className="muted small">{entry.status}</span>
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
       </Card>
 
-      <ReferralCard />
+      <div className="button-pair">
+        <Link to="/rounds/new" className="button-link ghost">
+          Start a round
+        </Link>
+        <Link to="/new" className="button-link ghost">
+          New tournament
+        </Link>
+      </div>
     </Page>
+  );
+}
+
+/**
+ * An event being played right now, promoted out of the list.
+ *
+ * **No score on it, deliberately.** The artboard showed points, and getting them
+ * honestly costs two requests — the leaderboard, plus the field to learn which
+ * participant is you. Matching on display name instead would be wrong on exactly
+ * the case the domain allows for: two people really can both be John Smith.
+ *
+ * The card's job is "this is live, here is the way in". A number that is right
+ * most of the time is worth less than one tap.
+ */
+function LiveCard({ entry }: { entry: Entry }) {
+  return (
+    <Card>
+      <span className="badge live">Playing</span>
+      <h2 className="live-name">{entry.name}</h2>
+      <Link to={entry.to} className="button-link">
+        Open
+      </Link>
+    </Card>
   );
 }

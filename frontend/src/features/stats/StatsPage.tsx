@@ -16,6 +16,7 @@ import { Link } from 'react-router-dom';
 import { Card, Empty, ErrorNote, Loading, Page } from '../../components/ui';
 import { useMyCourseRecords, useMyStats, useUpdateProfile } from '../../lib/queries';
 import { useSession } from '../auth/session-context';
+import { ReferralCard } from '../referrals/ReferralCard';
 import {
   applyTheme,
   readPreference,
@@ -46,6 +47,8 @@ export function StatsPage() {
       <DisplayName />
 
       <Appearance />
+
+      <ReferralCard />
 
       <Card>
         <h2>Career</h2>
