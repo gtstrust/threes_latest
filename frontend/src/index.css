@@ -326,7 +326,10 @@ select {
 
 /* --- Score entry -------------------------------------------------------- */
 
-.hole-tabs {
+/* The leaderboard's board switcher — overall, or one round. Named for what it
+   does now that the hole strip has its own classes; it was `.hole-tabs` back
+   when the two shared a look and nothing else. */
+.switcher {
   display: flex;
   gap: 0.5rem;
   overflow-x: auto;
@@ -706,4 +709,93 @@ select {
    for. Bordered in the accent so it is found without reading. */
 .card.accent {
   border-color: var(--green);
+}
+
+/* --- On course ---------------------------------------------------------- */
+
+/*
+ * The hole strip.
+ *
+ * Its own classes rather than the `.tab` the leaderboard's board switcher uses:
+ * the two looked alike once and did different jobs, so restyling either would
+ * silently restyle the other. A segmented switcher picks a view; this shows
+ * where the group is up to.
+ */
+.holes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.hole {
+  /* Still a button, and still thumb-sized: this is how somebody goes back to a
+     hole they mis-keyed, not decoration showing progress. */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  min-height: 3.4rem;
+  padding: 0.5rem 0.25rem;
+  background: var(--surface);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+}
+
+.hole-number {
+  font-family: var(--display);
+  font-size: 1.15rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.hole-state {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.hole.scored {
+  color: var(--ink);
+}
+
+.hole.current {
+  background: var(--green);
+  border-color: var(--green);
+  color: var(--on-green);
+}
+
+/*
+ * The moment the app asks rather than records — the ADR-007 tie-break, and the
+ * halved hole it can end in. Both used to look like every other card, which is
+ * how a question gets missed.
+ */
+.card.asking {
+  border-color: var(--warn);
+}
+
+.badge.warn {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+/* Placing, weighted so the top of the board is legible at a glance. */
+.place {
+  font-family: var(--display);
+  font-weight: 800;
+}
+
+.place-1 {
+  color: var(--green);
+}
+
+.place-2,
+.place-3 {
+  color: var(--ink);
+}
+
+.place-4 {
+  color: var(--muted);
 }

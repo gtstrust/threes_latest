@@ -45,9 +45,22 @@ export function LeaderboardPage({ tournamentId }: { tournamentId: UUID }) {
   const board = roundId === 'all' ? overall : perRound;
 
   return (
-    <Page title="Leaderboard" back={{ to: `/t/${tournamentId}`, label: 'Tournament' }}>
+    <Page
+      title="Leaderboard"
+      back={{ to: `/t/${tournamentId}`, label: 'Tournament' }}
+      actions={
+        live ? (
+          // Was a muted line of text under the tabs, which is where nobody
+          // looks. As a pill beside the heading it says the same thing where
+          // the eye already is.
+          <span className="badge live" aria-live="polite">
+            Live
+          </span>
+        ) : undefined
+      }
+    >
       {rounds.data && rounds.data.length > 0 && (
-        <nav className="hole-tabs" aria-label="Which board">
+        <nav className="switcher" aria-label="Which board">
           <button
             type="button"
             className={roundId === 'all' ? 'tab current' : 'tab'}
@@ -66,12 +79,6 @@ export function LeaderboardPage({ tournamentId }: { tournamentId: UUID }) {
             </button>
           ))}
         </nav>
-      )}
-
-      {live && (
-        <p className="muted small" aria-live="polite">
-          Updating live
-        </p>
       )}
 
       {board.isPending && <Loading what="Loading the board" />}
@@ -105,7 +112,10 @@ export function Board({ board }: { board: Leaderboard }) {
         <tbody>
           {board.entries.map((entry) => (
             <tr key={entry.participant_id}>
-              <td>{entry.position}</td>
+              {/* Weight by placing, so the shape of the board reads without
+                  being read: the leader in the accent, the podium in ink, the
+                  rest muted. */}
+              <td className={`place place-${Math.min(entry.position, 4)}`}>{entry.position}</td>
               <td>{entry.display_name}</td>
               <td>
                 <strong>{entry.points}</strong>

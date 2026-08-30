@@ -108,22 +108,32 @@ function ScoreCard({
       back={backTo ?? { to: `/t/${tournamentId}`, label: 'Tournament' }}
       theme="lit"
     >
-      <nav className="hole-tabs" aria-label="Holes in this loop">
-        {loop.map((hole, index) => (
-          <button
-            key={hole.hole_id}
-            type="button"
-            className={hole.hole_id === holeId ? 'tab current' : 'tab'}
-            aria-current={hole.hole_id === holeId}
-            onClick={() => setHoleId(hole.hole_id)}
-          >
-            {index + 1}
-            {scoredIds.has(hole.hole_id) && <span aria-label="scored"> ✓</span>}
-          </button>
-        ))}
+      {/*
+        Buttons, not a progress bar. They show where the group is up to, but they
+        are how somebody goes back to fix a mis-keyed hole — which is the whole
+        reason score entry re-submits through one upsert path. Styled as state
+        chips, still plainly pressable.
+      */}
+      <nav className="holes" aria-label="Holes in this loop">
+        {loop.map((hole, index) => {
+          const scored = scoredIds.has(hole.hole_id);
+          const current = hole.hole_id === holeId;
+          return (
+            <button
+              key={hole.hole_id}
+              type="button"
+              className={`hole${current ? ' current' : ''}${scored ? ' scored' : ''}`}
+              aria-current={current}
+              onClick={() => setHoleId(hole.hole_id)}
+            >
+              <span className="hole-number">{index + 1}</span>
+              <span className="hole-state">{current ? 'now' : scored ? 'done' : 'to play'}</span>
+            </button>
+          );
+        })}
       </nav>
 
-      <Link to={cardPath(group.id, backTo)} className="button-link">
+      <Link to={cardPath(group.id, backTo)} className="button-link ghost">
         See the whole card
       </Link>
 
@@ -246,7 +256,8 @@ function HoleEntry({
       )}
 
       {prompt?.kind === 'nobody_wins' && (
-        <Card>
+        <Card className="asking">
+          <span className="badge">Halved</span>
           <h2>Nobody wins this hole</h2>
           {/* Holes are never halved (ADR-007), so the alternative to one winner
               is none — not a share. Everyone scores zero and the hole stands. */}
@@ -282,7 +293,8 @@ function TieBreak({
   busy: boolean;
 }) {
   return (
-    <Card>
+    <Card className="asking">
+      <span className="badge warn">Tied on strokes</span>
       <h2>{question}</h2>
       <p className="muted small">{note}</p>
       <div className="choices">
