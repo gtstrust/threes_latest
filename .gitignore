@@ -3,5 +3,7 @@
 .DS_Store
 
 # Design canvas working files. The published canvas is the artefact; these are
-# the source it is re-seeded from and are kept out of the app's history.
+# the source it is re-seeded from, and `.design-live/` is whatever was last read
+# back out of it. Both are scratch — the canvas itself is the record.
 .design/
+.design-live/
