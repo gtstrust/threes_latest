@@ -1,32 +1,46 @@
 # Threes — Strategy
 
-> **⚠️ This document is a stub.**
+> **⚠️ Mostly a stub.**
 >
-> `CLAUDE.md` and `ROADMAP.md` both cite this file by section number as the source of truth for
-> *why* the MVP is scoped the way it is, but the file had never been written (and was linked as
-> `../THREES_STRATEGY.md`, a path outside the repo). The headings below exist so those references
-> resolve, and each section restates only what `CLAUDE.md` already asserts.
+> `CLAUDE.md` and `ROADMAP.md` cite this file by section number as the source of truth for *why*
+> the MVP is scoped the way it is, but it had never been written (and was linked as
+> `../THREES_STRATEGY.md`, a path outside the repo). Most headings below still restate only what
+> `CLAUDE.md` already asserts.
 >
-> **The actual reasoning — market sizing, pricing justification, competitive positioning — needs
-> to be written by the team.** It has deliberately not been invented here.
+> **§1 is the exception — it records a real decision** and is now the source, with `CLAUDE.md`
+> following it rather than the other way round.
+>
+> **The rest — market sizing, competitive positioning, the growth model — needs to be written by
+> the team.** It has deliberately not been invented here.
 
 ---
 
 ## 1. Monetisation — the Organiser Fee
 
-**What `CLAUDE.md` already commits to:**
+**Decided, for Phase 1 corporate days: the fee is quoted per event and invoiced separately.**
 
-- A flat fee, tiered by player count (small / medium / large).
-- Billed to the tournament organiser, not to individual players.
-- Invoiced manually — not collected in-app.
-- Stripe-based per-player entry fees are explicitly Phase 3.
+There is no published rate and no tier table. The largest input to what a corporate day costs is the
+course, and that varies by venue, by day of the week and by group size — so any flat or tiered rate
+would underprice the good venues and overprice the rest. Quoting per event is not a placeholder
+until a rate exists; it is the answer while the course is somebody else's price to set.
 
-**To be written:**
+What follows from it:
 
-- The actual tier boundaries and prices.
-- Why organiser-billed beats per-player entry fees for corporate golf days.
+- **Billed to the organiser, not to individual players.** A corporate day is bought by one company
+  for its guests; asking twelve clients each for a card would be a worse experience than the thing
+  being sold.
+- **Not collected in-app, and not modelled in the database.** No fee field, no amount, no invoice
+  record. One pilot does not need the platform to know what it cost, and a column would be a schema
+  commitment to a pricing model nobody has settled. Adding one later is cheap; unpicking a wrong one
+  from live events is not.
+- **Stripe and per-player entry fees remain Phase 3**, along with the rest of the commercial build.
+
+**Still to be written:**
+
 - What the fee has to clear to make a pilot worth running.
-- The fee is $5 per player
+- Whether a published rate replaces per-event quoting once there is enough history to price from —
+  and if so, what it is priced on, given the course cost is the part that moves.
+- Why organiser-billed beats per-player entry fees beyond the convenience argument above.
 
 ## 2. Why the MVP defers offline-first sync
 

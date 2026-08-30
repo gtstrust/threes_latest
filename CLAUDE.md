@@ -402,7 +402,7 @@ VITE_API_BASE_URL=http://localhost:8000
   the organiser can add or remove right up until `ROUND_IN_PROGRESS`. That override exists because
   ADR-003 has no route back to `REGISTRATION_OPEN`, so without it a no-show would be stuck in the
   draw. Once play starts the field is fixed.
-- **Organiser Fee**: The MVP monetisation model — a flat fee, tiered by player count (small/medium/large), billed to the tournament organiser and invoiced manually. See `THREES_STRATEGY.md` §1. Not collected in-app; Stripe-based per-player entry fees are Phase 3.
+- **Organiser Fee**: The MVP monetisation model — **quoted per event and invoiced separately**, billed to the organiser rather than to individual players. There is no published rate and no tier table: the course is the largest input and its price is somebody else's to set, so it varies by venue, day and group size. See `THREES_STRATEGY.md` §1, which is the source for this. Deliberately **not modelled in the database** — no fee field, no amount — because one pilot does not need the platform to know what it cost. Stripe and per-player entry fees are Phase 3.
 - **Sponsor**: A company or brand attached to a tournament (Phase 3). Sponsor name and logo are displayed on leaderboards and invitation emails.
 
 ## Important Context
