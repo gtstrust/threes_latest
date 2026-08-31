@@ -4,14 +4,22 @@ name: Reminder Sweep
 # yet. The endpoint is idempotent — it excludes events that already have an
 # UPCOMING reminder recorded — so a duplicate or retried run costs nothing.
 #
-# Hourly rather than daily: an event scheduled for 9am should not have its
-# reminder decided by what time a daily job happens to run. GitHub's cron can
-# fire up to ~15 minutes late and occasionally skips under load, which is
-# irrelevant for a day-ahead reminder and would not be for a tee-time one.
+# MANUAL FOR NOW. It shipped on an hourly cron against a backend that does not
+# exist yet, so every run failed on an empty API_BASE_URL — an alarm with nothing
+# behind it, which is worse than no alarm, because people learn to ignore it.
+#
+# TO TURN IT ON, once the backend is deployed and API_BASE_URL and CRON_SECRET
+# are set as repository secrets under the `production` environment, restore:
+#
+#   schedule:
+#     - cron: "7 * * * *"
+#
+# Hourly rather than daily, because an event at 9am should not have its reminder
+# decided by what time a daily job happens to run. Note GitHub throttles and
+# skips scheduled workflows on quiet repositories — the observed cadence here was
+# a few times a day, not hourly — which is fine for a day-ahead reminder and
+# would not be for a tee-time one.
 on:
-  schedule:
-    - cron: "7 * * * *"
-  # So it can be run by hand after changing the secret, or to check it works.
   workflow_dispatch:
 
 concurrency:

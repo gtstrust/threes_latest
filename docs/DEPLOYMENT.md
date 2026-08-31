@@ -153,8 +153,11 @@ Only needed when you want the app mailing players.
 3. Set `APP_URL` to the Pages URL. Links in reminder emails are built from it, and a wrong value
    produces mail whose links reach nobody — worse than mail that doesn't send.
 4. For the day-before sweep, add two repository secrets under the `production` environment:
-   `API_BASE_URL` (the Fly URL) and `CRON_SECRET` (**the same value** as the Fly secret). The
-   `Reminder Sweep` workflow runs hourly and can be triggered by hand to check it.
+   `API_BASE_URL` (the Fly URL) and `CRON_SECRET` (**the same value** as the Fly secret).
+5. Run the `Reminder Sweep` workflow by hand to check it answers 200, then **restore its schedule** —
+   it is `workflow_dispatch`-only today, because an hourly cron against a backend that did not exist
+   yet failed on every run and taught everyone to ignore it. The `on:` block in
+   `.github/workflows/reminder-sweep.yml` carries the cron line to put back.
 
 The sweep endpoint refuses everything while `CRON_SECRET` is unset — a route that mails an entire
 field must not default to open — and answers 404 rather than advertising that it exists.
