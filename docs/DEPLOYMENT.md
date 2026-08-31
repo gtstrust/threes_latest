@@ -55,7 +55,7 @@ fly secrets set \
   SUPABASE_URL="https://<ref>.supabase.co" \
   SUPABASE_KEY="sb_secret_..." \
   SUPABASE_JWT_SECRET="$(openssl rand -base64 32)" \
-  DATABASE_URL="postgresql+asyncpg://postgres.<ref>:<url-encoded-password>@aws-0-ap-southeast-2.pooler.supabase.com:5432/postgres" \
+  DATABASE_URL="postgresql+asyncpg://postgres.<ref>:<url-encoded-password>@<pooler-host>:5432/postgres" \
   CORS_ORIGINS="https://<your-project>.pages.dev" \
   APP_URL="https://<your-project>.pages.dev" \
   RESEND_API_KEY="re_..." \
@@ -90,6 +90,15 @@ and not the direct host:
 - `db.<ref>.supabase.co` publishes no A record. It is IPv6-only, and Fly machines are not
   guaranteed to have IPv6 egress to it.
 
+**Copy `<pooler-host>` from the dashboard — Connect → Session pooler — rather than composing it.**
+The fleet is per *project*, not per region: `aws-0-ap-southeast-2` and `aws-1-ap-southeast-2` both
+exist and are different load balancers, so a project on one is simply absent from the other. Guessing
+gives `Tenant or user not found`, which reads like a credentials problem and is not one.
+
+**Keep the `postgresql+asyncpg://` scheme.** Supabase prints a bare `postgresql://`, and asyncpg is
+the only driver installed. `Settings` coerces a bare URL and logs a warning rather than failing
+(`app/core/config.py`), but set it correctly and the warning stays out of the log.
+
 URL-encode the password: `@`, `/`, `#` and `?` in a password will otherwise be read as part of the
 connection string's structure.
 
@@ -102,6 +111,28 @@ fly deploy
 Or, once `FLY_API_TOKEN` is set as a repository secret under the `production` environment, run the
 **Deploy Backend** workflow from the Actions tab. Generate the token with
 `fly tokens create deploy -x 999999h`.
+
+### When the deploy fails
+
+`fly.toml` runs `alembic upgrade head` as its `release_command`, on a throwaway machine, *before*
+any traffic moves. That is the design — a schema step that cannot run must not put a half-migrated
+app in front of a field on a tee — but it means the failure happens somewhere the deploy output
+barely shows. The traceback is in the logs:
+
+```bash
+fly logs --app threes-api --no-tail | tail -40
+fly releases --app threes-api            # which version failed, and when
+```
+
+Two errors that name nothing resembling their cause, both seen on the first real deploy:
+
+| What the log says | What is actually wrong |
+|---|---|
+| `ModuleNotFoundError: No module named 'psycopg2'` | `DATABASE_URL` names no driver. SQLAlchemy's default for a bare `postgresql://` is psycopg2, which this project has never depended on. Use `postgresql+asyncpg://`. |
+| `asyncpg…InternalServerError: (ENOTFOUND) tenant/user postgres.<ref> not found` | Right credentials, wrong pooler fleet. `<pooler-host>` must be the one the dashboard prints for *this* project. |
+
+`fly secrets list` showing every secret as **Staged** is not a cause. An app with no machines yet has
+nowhere to apply them; they land on the first release that succeeds.
 
 ---
 
@@ -170,7 +201,7 @@ should not be the one a production database keeps.
 **Settings → Database → Reset database password**, then:
 
 ```bash
-fly secrets set DATABASE_URL="postgresql+asyncpg://postgres.<ref>:<new-url-encoded-password>@aws-0-ap-southeast-2.pooler.supabase.com:5432/postgres"
+fly secrets set DATABASE_URL="postgresql+asyncpg://postgres.<ref>:<new-url-encoded-password>@<pooler-host>:5432/postgres"
 ```
 
 Setting a secret triggers a redeploy on its own. Update your local `backend/.env` too if it points

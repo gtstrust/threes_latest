@@ -1,4 +1,9 @@
+import logging
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 # The literal values shipped in `.env.example`. They describe the shape of a
 # setting rather than name a place, so a config still carrying them is a config
@@ -16,6 +21,12 @@ PLACEHOLDER_SETTINGS = frozenset(
         "your-cron-secret",
     }
 )
+
+
+# The URL schemes that name Postgres without naming a driver. SQLAlchemy resolves
+# these to psycopg2, which this project has never depended on — see the validator
+# on `database_url` below.
+BARE_POSTGRES_SCHEMES = ("postgresql://", "postgres://")
 
 
 def is_configured(value: str | None) -> bool:
@@ -59,6 +70,36 @@ class Settings(BaseSettings):
     # reads as a network error rather than as a CORS one, so it is worth having
     # in the default rather than in everyone's .env.
     cors_origins: str = "http://localhost:5173,http://localhost:3000,http://localhost:8080"
+
+    @field_validator("database_url")
+    @classmethod
+    def _use_asyncpg(cls, value: str) -> str:
+        """Name the asyncpg driver when the URL does not name one at all.
+
+        asyncpg is the only driver this project installs, so a bare
+        `postgresql://` can only mean that one. SQLAlchemy resolves it to psycopg2
+        instead, and the resulting `ModuleNotFoundError: No module named
+        'psycopg2'` names a package that appears nowhere here — raised from inside
+        the dialect registry, several frames from anything the reader wrote.
+        Supabase hands out bare URLs, so pasting one is the expected path rather
+        than a slip, and worth repairing rather than rejecting.
+
+        It still warns. A config that is not the shape this file documents should
+        leave a trace in the deploy log instead of being silently corrected. The
+        URL itself never goes in the message: it carries the database password.
+
+        Any other explicit driver is left alone. Rewriting `postgresql+psycopg://`
+        would be guessing at intent, and a driver asked for by name fails clearly
+        enough on its own.
+        """
+        for scheme in BARE_POSTGRES_SCHEMES:
+            if value.startswith(scheme):
+                logger.warning(
+                    "DATABASE_URL names no driver; using asyncpg. "
+                    "Prefer postgresql+asyncpg:// explicitly."
+                )
+                return f"postgresql+asyncpg://{value[len(scheme) :]}"
+        return value
 
     @property
     def cors_origin_list(self) -> list[str]:
