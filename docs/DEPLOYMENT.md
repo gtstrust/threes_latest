@@ -1,10 +1,13 @@
 # Deploying Threes
 
-Backend on **Fly.io** (Sydney), frontend on **Cloudflare Pages**, database and auth on the existing
+Backend on **Fly.io** (Sydney), frontend on **Cloudflare Workers** (static assets), database and
+auth on the existing
 **Supabase** project. Everything the repository can hold is committed; what remains is credentials
 and dashboards.
 
-**Nothing has been deployed yet.** This document is the procedure, not a record.
+**The backend is deployed** — `threes-api.fly.dev`, one always-warm machine in Sydney, schema at
+head, health check passing. The frontend is not. This document is both the procedure and, for §1,
+a record of what was done.
 
 ## What is already in the repo
 
@@ -12,7 +15,7 @@ and dashboards.
 |---|---|
 | `backend/fly.toml` | The Fly app: Sydney, always-warm, `alembic upgrade head` as the release command |
 | `backend/Dockerfile` | Already production-shaped — non-root user, binds `0.0.0.0:8000`, ships `migrations/` |
-| `frontend/public/_redirects` | SPA fallback, without which every join link 404s |
+| `frontend/wrangler.jsonc` | The Worker: assets directory, and the SPA fallback without which every join link 404s |
 | `frontend/public/_headers` | Stops an edge cache pinning a stale service worker |
 | `.github/workflows/deploy-backend.yml` | Manual (`workflow_dispatch`) deploy; inert until run |
 
@@ -149,16 +152,36 @@ nowhere to apply them; they land on the first release that succeeds.
 
 ---
 
-## 2. Frontend — Cloudflare Pages
+## 2. Frontend — Cloudflare Workers
 
-Create a Pages project connected to this repository:
+A **Worker with static assets**, not a Pages project. Cloudflare creates static sites this way now,
+and the difference is not cosmetic — see the routing note below, which is the one place it bites.
+
+Create the Worker from **Workers & Pages → Create → Import a repository**, pointing at this
+repository:
 
 | Setting | Value |
 |---|---|
 | Root directory | `frontend` |
 | Build command | `npm ci && npm run build` |
-| Output directory | `dist` |
-| Node version | 22 |
+| Deploy command | `npx wrangler deploy` |
+| Node version | 22 (also pinned by `frontend/.node-version`) |
+
+The output directory is not a dashboard field here. `frontend/wrangler.jsonc` names it
+(`assets.directory: "./dist"`), which is the point of the config file existing.
+
+### Routing: why there is no `_redirects`
+
+Pages served an SPA with a `/*  /index.html  200` catch-all in `public/_redirects`. **On Workers that
+rule breaks the site outright**, because per Cloudflare's docs "redirects are always followed,
+regardless of whether or not an asset matches the incoming request" — so the catch-all matches
+`/assets/index-*.js` and `/sw.js` too, and every one of them is served `index.html`. Nothing loads.
+
+`wrangler.jsonc` uses `not_found_handling: "single-page-application"` instead, which fires only when
+nothing matched. That is what makes a cold `/join/THR-…` from a QR code resolve.
+
+`_headers` is unaffected and still committed: it decorates responses rather than routing them, so a
+`/*` rule there carries no equivalent hazard.
 
 Environment variables (all three are required — `src/lib/env.ts` refuses to start without them):
 
@@ -172,6 +195,22 @@ VITE_API_BASE_URL=https://threes-api.fly.dev
 here ships inside a static asset that anyone can read. `src/lib/env.ts` throws on startup if it
 finds an `sb_secret_` prefix, but do not rely on that to catch a mistake — the secret key bypasses
 row level security entirely.
+
+### When the build fails
+
+Four things account for almost everything, and none of them fails in a way that names itself.
+
+| What the log says | What is actually wrong |
+|---|---|
+| `Error: No lock file (package-lock.json, yarn.lock, pnpm-lock.yaml) found` | The build command says **`npx`** where it should say `npm`. `npx ci` finds an unrelated registry package called `ci` and runs *that*; the message is its, not npm's. `frontend/package-lock.json` is committed and fine. |
+| `npm error code ENOENT ... package.json` | **Root directory** is not `frontend`. There is no `package.json` at the repository root, by design. |
+| A Vite or esbuild syntax error on a build that passes locally | Node is too old. `vite` declares `^20.19.0 \|\| >=22.12.0`; `frontend/.node-version` and `engines` in `package.json` both pin it, and `NODE_VERSION` in the dashboard overrides them. |
+| The build succeeds, the site loads blank, and the JS request returns HTML | A `/*` catch-all in `_redirects`. On Workers those are followed even when an asset matches, so the whole bundle is served `index.html`. Routing belongs in `wrangler.jsonc`, not `_redirects`. |
+
+The line to read first is `Detected the following tools from environment:`. It names what Cloudflare
+pinned; **empty means it found no version file at all**, which is the direct evidence for the third
+row. `Executing user build command:` answers the first row just as plainly — the two together
+usually end the investigation before it starts.
 
 ### The domain
 
@@ -188,10 +227,10 @@ certificate. Then three redirect rules, all 301, all to the canonical origin:
 ```
 https://threes.golf/*         -> https://app.threes.golf/$1
 https://www.threes.golf/*     -> https://app.threes.golf/$1
-https://<project>.pages.dev/* -> https://app.threes.golf/$1
+https://<worker>.workers.dev/*  -> https://app.threes.golf/$1
 ```
 
-The `.pages.dev` one is not tidiness. `CORS_ORIGINS` names one origin, so the Pages address would
+The `.workers.dev` one is not tidiness. `CORS_ORIGINS` names one origin, so that address would
 otherwise serve a site that loads and then fails every API call — the worst kind of broken, because
 it looks fine. The apex rule needs a proxied placeholder record to attach to (`A` → `192.0.2.1`,
 orange cloud); that is Cloudflare's standard recipe for redirecting an apex.
@@ -216,7 +255,7 @@ In **Authentication → URL Configuration**:
   `localhost:5173` every link emailed to a real player opens a page that does not exist for them.
 - **Redirect URLs**: `https://app.threes.golf`.
 
-A wildcard for preview builds (`https://*.<project>.pages.dev/**`) buys less than it looks like.
+A wildcard for preview builds (`https://*.workers.dev/**`) buys less than it looks like.
 `app/main.py` passes `allow_origins` an exact-match list — Starlette does no pattern matching — so a
 preview build would complete its login and then fail every API call. Letting previews through means
 `allow_origin_regex` in the backend, which is a deliberate decision to let any branch build read
@@ -294,8 +333,8 @@ Then, in a browser, in this order — each step depends on the one before it:
    `localhost`. The app then calls `POST /players`; a CORS error here means `CORS_ORIGINS` does not
    match the origin exactly (scheme and host, no trailing slash).
 4. Create a tournament, open the invite card, and **scan the QR from a phone**. It should resolve
-   `/join/THR-…` from a cold load — this is the check that `_redirects` is working, and it cannot be
-   done from the desktop tab that already has the app loaded.
+   `/join/THR-…` from a cold load — this is the check that `not_found_handling` is working, and it
+   cannot be done from the desktop tab that already has the app loaded.
 5. Join from that phone, draw a round, score a hole, and watch the leaderboard move on the other
    device without a refresh. That exercises the Realtime broadcast, which is the part that fails
    silently if `SUPABASE_KEY` is the wrong key.
@@ -339,6 +378,6 @@ Three of those directives are load-bearing for a specific reason:
 
 ## Cost
 
-One always-warm `shared-cpu-1x` machine with 512MB, plus Supabase and Cloudflare Pages, which are
+One always-warm `shared-cpu-1x` machine with 512MB, plus Supabase and Cloudflare Workers, which are
 both free at this scale. The always-warm part is a deliberate choice rather than a default: see the
 comment in `fly.toml` about cold starts between holes.

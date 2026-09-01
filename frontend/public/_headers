@@ -1,4 +1,9 @@
-# Cloudflare Pages response headers.
+# Response headers for the built site.
+#
+# `_headers` is read by Workers static assets from the assets directory, which is
+# where Vite copies this file. Unlike `_redirects` — deleted, see wrangler.jsonc —
+# it only decorates responses and cannot reroute one, so there is no equivalent
+# hazard in a `/*` rule here.
 
 # The service worker must never be held by an edge cache. vite-plugin-pwa is
 # configured with registerType: 'autoUpdate', which only works if the browser can

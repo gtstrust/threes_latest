@@ -1,0 +1,37 @@
+// Cloudflare Workers static assets — how the built site is served.
+//
+// This project is a Worker, not a Pages project. That distinction is not
+// cosmetic: the two products route static files by different rules, and the one
+// that changed is the one this app depends on most.
+{
+  "name": "threes-golf",
+  "compatibility_date": "2026-09-02",
+
+  "assets": {
+    // Vite's output. `public/` is copied verbatim into it at build time, so
+    // `_headers` lands here too and needs no build configuration.
+    "directory": "./dist",
+
+    // The SPA fallback, and the reason `public/_redirects` was deleted.
+    //
+    // Every link this app hands out is a deep one opened *cold*, by someone who
+    // has never loaded the site in this tab:
+    //
+    //   /join/THR-8K2QF      scanned off a QR code at registration
+    //   /t/{id}              texted round by the organiser
+    //   /r/{id}/g/{groupId}  followed on a tee box
+    //
+    // None of those paths exist on disk, so without a fallback each answers 404
+    // and React never gets the chance to route it — the invite mechanism looks
+    // broken to exactly the people it was sent to.
+    //
+    // This is `not_found_handling` rather than a `/* /index.html 200` line in
+    // `_redirects`, which is how Pages did it. On Workers, "redirects are always
+    // followed, regardless of whether or not an asset matches the incoming
+    // request" — so that catch-all would match `/assets/index-*.js` and `/sw.js`
+    // as well, serving HTML for the whole bundle. It does not degrade the site;
+    // it stops it loading. `not_found_handling` fires only when nothing matched,
+    // which is the behaviour the catch-all was always standing in for.
+    "not_found_handling": "single-page-application"
+  }
+}
