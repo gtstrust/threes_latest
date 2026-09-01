@@ -56,8 +56,8 @@ fly secrets set \
   SUPABASE_KEY="sb_secret_..." \
   SUPABASE_JWT_SECRET="$(openssl rand -base64 32)" \
   DATABASE_URL="postgresql+asyncpg://postgres.<ref>:<url-encoded-password>@<pooler-host>:5432/postgres" \
-  CORS_ORIGINS="https://<your-project>.pages.dev" \
-  APP_URL="https://<your-project>.pages.dev" \
+  CORS_ORIGINS="https://app.threes.golf" \
+  APP_URL="https://app.threes.golf" \
   RESEND_API_KEY="re_..." \
   EMAIL_FROM="Threes <noreply@your-domain.com>" \
   CRON_SECRET="$(openssl rand -base64 32)"
@@ -173,17 +173,54 @@ here ships inside a static asset that anyone can read. `src/lib/env.ts` throws o
 finds an `sb_secret_` prefix, but do not rely on that to catch a mistake — the secret key bypasses
 row level security entirely.
 
+### The domain
+
+The app is served from **`https://app.threes.golf`**, which is the origin every other setting in this
+runbook has to match.
+
+`app.` rather than the apex because this is an application rather than a marketing site, and it
+leaves `threes.golf` free for one later. The apex is not wasted: it redirects, so the short domain is
+still what goes on a printed sign at a registration desk.
+
+Attach `app.threes.golf` to the Pages project and Cloudflare creates the DNS record and issues the
+certificate. Then three redirect rules, all 301, all to the canonical origin:
+
+```
+https://threes.golf/*         -> https://app.threes.golf/$1
+https://www.threes.golf/*     -> https://app.threes.golf/$1
+https://<project>.pages.dev/* -> https://app.threes.golf/$1
+```
+
+The `.pages.dev` one is not tidiness. `CORS_ORIGINS` names one origin, so the Pages address would
+otherwise serve a site that loads and then fails every API call — the worst kind of broken, because
+it looks fine. The apex rule needs a proxied placeholder record to attach to (`A` → `192.0.2.1`,
+orange cloud); that is Cloudflare's standard recipe for redirecting an apex.
+
+**Moving the zone: check the mail.** `threes.golf` was on DreamHost nameservers with live MX records
+(`mx1`/`mx2.dreamhost.com`) and nothing else — no A, no CNAME, no TXT. Cloudflare's onboarding scan
+imports existing records, but confirm those two survived before and after the nameserver change:
+
+```bash
+dig +short MX threes.golf
+```
+
+It is the only step here whose failure costs something that has nothing to do with the deployment.
+
 ---
 
 ## 3. Supabase Auth
 
 In **Authentication → URL Configuration**:
 
-- **Site URL**: the Pages URL. This is where magic links land; while it says `localhost:5173` every
-  link emailed to a real player opens a page that does not exist for them.
-- **Redirect URLs**: the Pages URL. Add `https://*.<your-project>.pages.dev/**` too if you want to
-  be able to log in to preview deployments — every branch build gets its own subdomain, and without
-  a wildcard none of them can complete a login.
+- **Site URL**: `https://app.threes.golf`. This is where magic links land; while it says
+  `localhost:5173` every link emailed to a real player opens a page that does not exist for them.
+- **Redirect URLs**: `https://app.threes.golf`.
+
+A wildcard for preview builds (`https://*.<project>.pages.dev/**`) buys less than it looks like.
+`app/main.py` passes `allow_origins` an exact-match list — Starlette does no pattern matching — so a
+preview build would complete its login and then fail every API call. Letting previews through means
+`allow_origin_regex` in the backend, which is a deliberate decision to let any branch build read
+production data, not a config tweak. Production origin only until that is actually wanted.
 
 ---
 
@@ -226,20 +263,40 @@ at Supabase rather than the local Postgres.
 
 ```bash
 curl https://threes-api.fly.dev/health          # {"status":"ok"}
+fly checks list --app threes-api                # a passing check, not an empty table
 fly logs                                        # the release command's alembic output
 ```
 
+`fly checks list` rather than `fly config validate`. Validation only proves the TOML parses — it
+answers "✓ Configuration is valid" for `[[http_service.banana_checks]]` — so a health check block
+under a key Fly does not recognise is accepted, ignored, and never runs.
+
+CORS is checkable without a browser, which is worth doing before wondering whether the frontend is
+at fault:
+
+```bash
+curl -s -D - -o /dev/null -X OPTIONS https://threes-api.fly.dev/health \
+  -H "Origin: https://app.threes.golf" -H "Access-Control-Request-Method: GET" \
+  | grep -i access-control-allow-origin
+```
+
+A returned header is the pass. A 400 with no header means `CORS_ORIGINS` does not contain that exact
+origin.
+
 Then, in a browser, in this order — each step depends on the one before it:
 
-1. Load the Pages URL. It should render the sign-in screen, not a blank page. A blank page with a
-   console error naming a `VITE_` variable means step 2's environment variables are incomplete.
-2. Request a magic link and follow it from a real inbox. It must land on the Pages URL, not
+1. Load `https://app.threes.golf`. It should render the sign-in screen, not a blank page. A blank
+   page with a console error naming a `VITE_` variable means step 2's environment variables are
+   incomplete.
+2. Load `https://threes.golf`. It should 301 to `app.threes.golf` — the redirect is the whole reason
+   a domain this short is worth owning, since it is what gets printed on a sign.
+3. Request a magic link and follow it from a real inbox. It must land on `app.threes.golf`, not
    `localhost`. The app then calls `POST /players`; a CORS error here means `CORS_ORIGINS` does not
-   match the Pages origin exactly (scheme and host, no trailing slash).
-3. Create a tournament, open the invite card, and **scan the QR from a phone**. It should resolve
+   match the origin exactly (scheme and host, no trailing slash).
+4. Create a tournament, open the invite card, and **scan the QR from a phone**. It should resolve
    `/join/THR-…` from a cold load — this is the check that `_redirects` is working, and it cannot be
    done from the desktop tab that already has the app loaded.
-4. Join from that phone, draw a round, score a hole, and watch the leaderboard move on the other
+5. Join from that phone, draw a round, score a hole, and watch the leaderboard move on the other
    device without a refresh. That exercises the Realtime broadcast, which is the part that fails
    silently if `SUPABASE_KEY` is the wrong key.
 
@@ -266,7 +323,7 @@ magic-link login outright rather than degrading:
 
 ```
 /*
-  Content-Security-Policy: default-src 'self'; connect-src 'self' https://<ref>.supabase.co wss://<ref>.supabase.co https://threes-api.fly.dev; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; base-uri 'none'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; connect-src 'self' https://asrijzarthrqgyuujigw.supabase.co wss://asrijzarthrqgyuujigw.supabase.co https://threes-api.fly.dev; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; base-uri 'none'; frame-ancestors 'none'
 ```
 
 Three of those directives are load-bearing for a specific reason:
