@@ -173,6 +173,21 @@ here ships inside a static asset that anyone can read. `src/lib/env.ts` throws o
 finds an `sb_secret_` prefix, but do not rely on that to catch a mistake — the secret key bypasses
 row level security entirely.
 
+### When the Pages build fails
+
+Three settings account for almost everything, and none of them fails in a way that names itself.
+
+| What the log says | What is actually wrong |
+|---|---|
+| `Error: No lock file (package-lock.json, yarn.lock, pnpm-lock.yaml) found` | The build command says **`npx`** where it should say `npm`. `npx ci` finds an unrelated registry package called `ci` and runs *that*; the message is its, not npm's. `frontend/package-lock.json` is committed and fine. |
+| `npm error code ENOENT ... package.json` | **Root directory** is not `frontend`. There is no `package.json` at the repository root, by design. |
+| A Vite or esbuild syntax error on a build that passes locally | Node is too old. `vite` declares `^20.19.0 \|\| >=22.12.0`; `frontend/.node-version` and `engines` in `package.json` both pin it, and `NODE_VERSION` in the dashboard overrides them. |
+
+The line to read first is `Detected the following tools from environment:`. It names what Cloudflare
+pinned; **empty means it found no version file at all**, which is the direct evidence for the third
+row. `Executing user build command:` answers the first row just as plainly — the two together
+usually end the investigation before it starts.
+
 ### The domain
 
 The app is served from **`https://app.threes.golf`**, which is the origin every other setting in this
