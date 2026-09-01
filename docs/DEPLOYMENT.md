@@ -100,7 +100,19 @@ the only driver installed. `Settings` coerces a bare URL and logs a warning rath
 (`app/core/config.py`), but set it correctly and the warning stays out of the log.
 
 URL-encode the password: `@`, `/`, `#` and `?` in a password will otherwise be read as part of the
-connection string's structure.
+connection string's structure. An unencoded `@` does not fail as a password error — it re-splits the
+string, and the *host* becomes the tail of the password, so the deploy dies on DNS instead.
+
+**Check the string before setting it.** `fly secrets set` accepts anything, and the first thing that
+disagrees is a release command four minutes later:
+
+```bash
+python scripts/check_db_url.py --connect     # prompts; nothing is echoed or kept in history
+```
+
+It parses the URL the way asyncpg will, prints it back with the password redacted, resolves the host,
+and — with `--connect` — opens it and asks the server what it is. Every failure in the table below is
+one it catches in under a second.
 
 ### Deploy
 
@@ -124,12 +136,13 @@ fly logs --app threes-api --no-tail | tail -40
 fly releases --app threes-api            # which version failed, and when
 ```
 
-Two errors that name nothing resembling their cause, both seen on the first real deploy:
+Three errors that name nothing resembling their cause, all seen on the first real deploy:
 
 | What the log says | What is actually wrong |
 |---|---|
 | `ModuleNotFoundError: No module named 'psycopg2'` | `DATABASE_URL` names no driver. SQLAlchemy's default for a bare `postgresql://` is psycopg2, which this project has never depended on. Use `postgresql+asyncpg://`. |
 | `asyncpg…InternalServerError: (ENOTFOUND) tenant/user postgres.<ref> not found` | Right credentials, wrong pooler fleet. `<pooler-host>` must be the one the dashboard prints for *this* project. |
+| `socket.gaierror: [Errno -2] Name or service not known` | The host does not resolve. Either a placeholder survived, or an unencoded `@` in the password re-split the URL and the host is now a fragment of it. `check_db_url.py` prints the host it actually parsed. |
 
 `fly secrets list` showing every secret as **Staged** is not a cause. An app with no machines yet has
 nowhere to apply them; they land on the first release that succeeds.
