@@ -266,12 +266,19 @@ magic-link login outright rather than degrading:
 
 ```
 /*
-  Content-Security-Policy: default-src 'self'; connect-src 'self' https://<ref>.supabase.co wss://<ref>.supabase.co https://threes-api.fly.dev; img-src 'self' data:; style-src 'self' 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; connect-src 'self' https://<ref>.supabase.co wss://<ref>.supabase.co https://threes-api.fly.dev; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; base-uri 'none'; frame-ancestors 'none'
 ```
 
-`wss:` is required — the Realtime subscription is a WebSocket. `style-src 'unsafe-inline'` is needed
-while any inline style attribute remains in the bundle; check the console for violations before
-deciding it can be dropped.
+Three of those directives are load-bearing for a specific reason:
+
+- **`wss:`** — the Realtime subscription is a WebSocket, and `connect-src` covers it separately from
+  the https origin.
+- **The two font hosts.** `index.html` loads Archivo from `fonts.googleapis.com`, which then fetches
+  the font files from `fonts.gstatic.com` — two hosts, hence `style-src` *and* `font-src`. Omit them
+  and the page still renders, in a fallback face, which is the kind of breakage that gets blamed on
+  anything but a header.
+- **`style-src 'unsafe-inline'`** — needed while any inline style attribute remains in the bundle.
+  Check the console for violations before deciding it can be dropped.
 
 ## Cost
 
