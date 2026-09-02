@@ -170,6 +170,14 @@ repository:
 | Deploy command | `npx wrangler deploy` |
 | Node version | 22 (also pinned by `frontend/.node-version`) |
 
+**Root directory is the one that has to be right before any of the others can be.** It is where the
+build command runs, and nothing the build needs is anywhere else: `package.json` and
+`package-lock.json` are in `frontend/`, and so is `wrangler.jsonc`, which the deploy command reads.
+Left empty, the build runs at the repository root — which holds no `package.json` at all, by design
+— and `npm ci` fails before a line of this project executes. That is the second row of the table
+below, and it is worth checking first because every other setting is judged against a build that
+never started.
+
 The output directory is not a dashboard field here. `frontend/wrangler.jsonc` names it
 (`assets.directory: "./dist"`), which is the point of the config file existing.
 
@@ -196,8 +204,9 @@ VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 VITE_API_BASE_URL=https://threes-api.fly.dev
 ```
 
-They belong in **Settings → Build → Variables and secrets**, as plain text rather than encrypted
-secrets — encrypted ones are not exposed to the build.
+They belong in **Settings → Build → Variables and secrets**. Either kind works: Cloudflare exposes
+build variables *and* build secrets to the build, and differs only in whether the value stays
+readable in the dashboard afterwards.
 
 **A Worker has a second, unrelated "Variables and secrets" under its runtime settings, and putting
 them there does nothing.** Those are bindings handed to Worker code at request time; this site is
@@ -221,16 +230,24 @@ which is why it was added.
 | What the log says | What is actually wrong |
 |---|---|
 | `Error: No lock file (package-lock.json, yarn.lock, pnpm-lock.yaml) found` | The build command says **`npx`** where it should say `npm`. `npx ci` finds an unrelated registry package called `ci` and runs *that*; the message is its, not npm's. `frontend/package-lock.json` is committed and fine. |
-| `npm error code ENOENT ... package.json` | **Root directory** is not `frontend`. There is no `package.json` at the repository root, by design. |
-| A Vite or esbuild syntax error on a build that passes locally | Node is too old. `vite` declares `^20.19.0 \|\| >=22.12.0`; `frontend/.node-version` and `engines` in `package.json` both pin it, and `NODE_VERSION` in the dashboard overrides them. |
+| `npm error code EUSAGE` / `npm ci` `can only install with an existing package-lock.json` | **Root directory** is not `frontend`, so npm is standing at the repository root — where there is no `package.json` and no lockfile, by design. Not the same as the row above, though both blame the lockfile: check `Executing user build command:`. `npx` means the row above, `npm` means this one. |
+| A Vite or esbuild syntax error on a build that passes locally | Node is too old. `vite` declares `^20.19.0 \|\| >=22.12.0`; `frontend/.node-version` and `engines` in `package.json` both pin it, and `NODE_VERSION` in the dashboard overrides them. The least likely of the six now — Cloudflare's default is 24.18.0, which already satisfies that range. |
 | The build succeeds, the site loads blank, and the JS request returns HTML | A `/*` catch-all in `_redirects`. On Workers those are followed even when an asset matches, so the whole bundle is served `index.html`. Routing belongs in `wrangler.jsonc`, not `_redirects`. |
 | `Cannot build: the frontend configuration is incomplete` | Exactly what it says — the named `VITE_*` variables are not in the **build** environment. This is the guard working; see the row below for what it is preventing. |
 | The build succeeds, the JS is served correctly, and the page is still blank with a console error naming a `VITE_` variable | An older build, made before the guard existed, with no values to inline. `grep -o 'supabase\.co' dist/assets/index-*.js` on the served bundle returns nothing. Set the build variables and **re-run the build** — the deployed bundle cannot be repaired in place. |
 
-The line to read first is `Detected the following tools from environment:`. It names what Cloudflare
-pinned; **empty means it found no version file at all**, which is the direct evidence for the third
-row. `Executing user build command:` answers the first row just as plainly — the two together
-usually end the investigation before it starts.
+Two lines near the top of every log settle most of it before you read the error.
+
+`Executing user build command:` separates the two lockfile-shaped messages outright — `npx` is the
+first row, `npm` is the second.
+
+`Detected the following tools from environment:` is the more useful one, and easy to misread. It
+names what Cloudflare pinned, and **empty means it found no version file** — but the first thing
+that implies is the *root directory*, not the Node version, because `.node-version` lives in
+`frontend/` and Cloudflare only looks inside the configured root. An empty tools line arrives
+alongside `No dependencies detected to cache. Skipping.` and the `EUSAGE` failure, and those three
+together are one symptom, not three: **the build is standing in the wrong directory.** Read it as
+the Node row only once the root directory is known to be right.
 
 ### The domain
 
