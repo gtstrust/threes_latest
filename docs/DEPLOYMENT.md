@@ -380,6 +380,34 @@ curl -s "https://<project-ref>.supabase.co/auth/v1/settings" -H "apikey: <publis
 `"email": true` under `external` means the provider is on; `"mailer_autoconfirm": true` means
 confirmations are off. The publishable key is safe to use here — it already ships in the bundle.
 
+### The password bypass, and how to turn it off
+
+Until the SMTP work above is done, the link often does not arrive at all, so the app also offers
+signing in with a password — behind **"Can't get the email?"** on the sign-in screen. It works
+because this project has confirmations off (`mailer_autoconfirm: true`), which means
+`supabase.auth.signUp` returns a session immediately and **sends nothing**. No dashboard change is
+needed to make it work; the Email provider is already on.
+
+It is controlled by `VITE_ENABLE_PASSWORD_LOGIN`, which is **on when unset** — a bypass that has to
+be switched on is no use to somebody already locked out. Only `false` and `0` turn it off, so a typo
+leaves it in place rather than silently removing the only way in.
+
+**To remove it once SMTP works:** set `VITE_ENABLE_PASSWORD_LOGIN=false` in the Cloudflare **build**
+variables — Settings → Build → Variables and secrets, not the Worker runtime bindings (§2 covers why
+that distinction bites) — and **re-run the build**. Saving a build variable does not rebuild on its
+own, and Vite inlines the value, so nothing changes until it does.
+
+**To sign in as an account that already exists**, set a password on it in **Authentication → Users →
+(the user) → Update password**. Signing up again with the same address will not do it: Supabase
+answers an already-registered address without setting a password, so an account created by magic
+link stays reachable only by magic link until you do this. Using a fresh address instead needs no
+dashboard access at all.
+
+Worth being honest about the trade: with confirmations off, a password signup does not prove the
+person owns the address. That was already true of magic-link signups here for the same reason, so
+this changes nothing about the actual posture — but it is the reason to take the flag off rather
+than leave it on indefinitely.
+
 ### When the link arrives but does not sign anyone in
 
 Corporate mail is the awkward case, and corporate golf days are the target. Outlook Safe Links and

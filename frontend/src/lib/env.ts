@@ -19,6 +19,19 @@ type Env = {
    */
   supabasePublishableKey: string;
   apiBaseUrl: string;
+  /**
+   * Whether to offer signing in with a password as well as a magic link.
+   *
+   * A temporary bypass. Supabase's built-in mail service allows two messages an
+   * hour, which is fewer than a fourball, so while that is the sender nobody can
+   * reliably get in by link. A password needs no inbox.
+   *
+   * Defaults to **on**, because it exists precisely for the situation where the
+   * link does not arrive — a bypass that has to be switched on is no use to
+   * somebody already locked out. Turning it off is the deliberate act, and the
+   * thing to do once custom SMTP is configured.
+   */
+  passwordLoginEnabled: boolean;
 };
 
 function required(name: string, value: string | undefined): string {
@@ -50,7 +63,21 @@ function readEnv(): Env {
     supabaseUrl: required('VITE_SUPABASE_URL', import.meta.env.VITE_SUPABASE_URL),
     supabasePublishableKey: key,
     apiBaseUrl: required('VITE_API_BASE_URL', import.meta.env.VITE_API_BASE_URL),
+    passwordLoginEnabled: enabled(import.meta.env.VITE_ENABLE_PASSWORD_LOGIN),
   };
+}
+
+/**
+ * An optional switch, on unless it is explicitly turned off.
+ *
+ * Deliberately not `required()`: an unset value is the normal case, and a build
+ * that has never heard of this variable must keep working. Only the two spellings
+ * of "no" count, so a typo leaves the bypass on rather than silently removing the
+ * only way in.
+ */
+function enabled(value: string | undefined): boolean {
+  const normalised = value?.trim().toLowerCase();
+  return normalised !== 'false' && normalised !== '0';
 }
 
 export const env = readEnv();

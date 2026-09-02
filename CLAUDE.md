@@ -459,7 +459,12 @@ VITE_API_BASE_URL=http://localhost:8000
 4. Real-time leaderboards use Supabase Realtime **Broadcast**, not custom WebSockets and not
    Postgres Changes. The message carries no scores — it only tells a client to refetch the
    leaderboard endpoint. See ADR-010 for why Postgres Changes was rejected.
-5. Magic link auth means no passwords are stored. Supabase Auth handles the entire flow.
+5. Magic link is the intended auth, and Supabase Auth handles the entire flow. **A password
+   sign-in path exists alongside it, temporarily**, behind `VITE_ENABLE_PASSWORD_LOGIN` (on unless
+   set to `false`). It is there because Supabase's built-in sender allows two messages an hour, so
+   the link frequently never arrives — a bypass that needs no inbox. Supabase stores the password,
+   not this app, and the flag comes off once custom SMTP is configured (`docs/DEPLOYMENT.md` §3).
+   Until then, "no passwords are stored" is not true of this project.
 6. MVP is a **lean validation build**: web-only, no AI, no offline sync — see `THREES_STRATEGY.md`. The MVP milestone is running one real corporate golf day, with the organiser paying the per-event fee.
 7. Phase 2 — post-pilot engagement & growth. **All six workstreams are built**: Fun Rounds,
    invite / join-links + QR, player caps, reminders (which pulled an outbound-email channel forward),

@@ -44,6 +44,34 @@ export async function sendMagicLink(email: string, redirectTo: string): Promise<
   if (error) throw error;
 }
 
+/**
+ * Sign in with a password — the way in that does not involve an inbox.
+ *
+ * A bypass, kept while Supabase's built-in sender rate-limits magic links to two
+ * an hour. See `env.passwordLoginEnabled`, which hides it.
+ */
+export async function signInWithPassword(email: string, password: string): Promise<void> {
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) throw error;
+}
+
+/**
+ * Create an account with a password, signed in immediately.
+ *
+ * No `emailRedirectTo`, unlike `sendMagicLink`: the project has email
+ * confirmations off, so `signUp` returns a session there and then and sends
+ * nothing. Passing a redirect would describe a round trip that does not happen.
+ *
+ * **This does not put a password on an account that already exists.** Supabase
+ * answers an already-registered address without setting one, so an account
+ * created by magic link stays reachable only by magic link — a password has to be
+ * set on it from the dashboard instead.
+ */
+export async function signUpWithPassword(email: string, password: string): Promise<void> {
+  const { error } = await supabase.auth.signUp({ email, password });
+  if (error) throw error;
+}
+
 export async function signOut(): Promise<void> {
   await supabase.auth.signOut();
 }
