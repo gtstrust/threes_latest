@@ -5,9 +5,10 @@ auth on the existing
 **Supabase** project. Everything the repository can hold is committed; what remains is credentials
 and dashboards.
 
-**The backend is deployed** — `threes-api.fly.dev`, one always-warm machine in Sydney, schema at
-head, health check passing. The frontend is not. This document is both the procedure and, for §1,
-a record of what was done.
+**Both ends are deployed.** The backend is `threes-api.fly.dev` — one always-warm machine in Sydney,
+schema at head, health check passing — and the frontend Worker serves `app.threes.golf`, with the
+SPA fallback resolving cold `/join/THR-…` loads. This document is both the procedure and a record of
+what was done.
 
 ## What is already in the repo
 
@@ -336,6 +337,63 @@ complete its login and then fail every API call. Letting previews through means 
 in the backend, which is a deliberate decision to let any branch build read production data, not a
 config tweak. Production origin only until that is actually wanted.
 
+### Sending the mail: custom SMTP is not optional
+
+**Supabase's built-in email service is capped at 2 messages per hour, and that cap cannot be
+raised.** It exists for kicking the tyres, not for running an event — two is not enough to sign in
+one fourball. Every sign-in sends a message, so the cap is reached by the third person to arrive at
+registration, and the ones after that get nothing with no indication why. This is the single most
+likely thing to stop a golf day working, and until it was hit in anger nothing in this runbook
+mentioned it.
+
+The way out is a sender of your own. Resend is already set up for reminders (§4), the domain is
+already verified, and Supabase takes it as plain SMTP. In **Authentication → Emails → SMTP
+Settings**:
+
+| Field | Value |
+|---|---|
+| Host | `smtp.resend.com` |
+| Port | `465` |
+| Username | `resend` |
+| Password | the same `RESEND_API_KEY` the backend already holds |
+| Sender email | the `EMAIL_FROM` address, which must be on the **verified** Resend domain |
+
+**Then raise the limit, which is a second step.** Configuring SMTP does not lift the cap by itself —
+it only moves the cap from Supabase's number to yours, and the default it leaves behind is still far
+below a full field. In **Authentication → Rate Limits**, set the emails-per-hour figure above the
+largest field you expect to sign in within an hour, with headroom for people who lose the first link
+and ask for another. Registration is bursty — the whole field arrives inside the same ten minutes —
+so size it for the burst rather than the average. Skipping this step reproduces the original symptom
+at a different number, which is worse, because it looks like the fix did not work.
+
+Leave **Confirm email** off (`mailer_autoconfirm`). A magic link is itself proof of the address, so
+a separate confirmation would be a second message per signup and double the volume for nothing.
+Turning it off is *not* a way to reduce sending, though, and was tried as one: `signInWithOtp` sends
+a message on every attempt regardless.
+
+You can read the current state of all of this without opening the dashboard:
+
+```bash
+curl -s "https://<project-ref>.supabase.co/auth/v1/settings" -H "apikey: <publishable-key>"
+```
+
+`"email": true` under `external` means the provider is on; `"mailer_autoconfirm": true` means
+confirmations are off. The publishable key is safe to use here — it already ships in the bundle.
+
+### When the link arrives but does not sign anyone in
+
+Corporate mail is the awkward case, and corporate golf days are the target. Outlook Safe Links and
+similar scanners **pre-fetch URLs in incoming mail**, and a magic-link token is single-use — so the
+scanner spends it and the player clicks a link that is already dead. Nothing is misconfigured and
+nothing will show up in logs.
+
+The app now says so rather than silently returning to the sign-in form: `features/auth/callback-error.ts`
+reads the `error_code` Supabase puts on the callback URL and `LoginPage` shows it, so an expired or
+already-used link reads as "send yourself a new one" instead of looking like a broken button. That
+makes it legible, not fixed. The actual fix is a 6-digit code, which a scanner cannot consume, and
+that needs a code-entry screen the app does not have yet. Worth building before a pilot whose
+attendees are all on corporate mail.
+
 ---
 
 ## 4. Reminders
@@ -408,10 +466,17 @@ Then, in a browser, in this order — each step depends on the one before it:
    `https://app.threes.golf/`; `localhost:3000` means Supabase fell back to Site URL because the
    allow list did not match (§3). Then follow it. The app calls `POST /players`; a CORS error here
    means `CORS_ORIGINS` does not match the origin exactly (scheme and host, no trailing slash).
-4. Create a tournament, open the invite card, and **scan the QR from a phone**. It should resolve
+4. **Request a fourth link within the same hour.** Two successes prove nothing — two was always
+   allowed. This is the only step that actually tests the SMTP work in §3, and it is the one that
+   was failing when a real field tried to sign in. If the fourth does not arrive, the rate limit was
+   not raised; SMTP alone does not do it.
+5. Click a link twice. The second time should say the link has already been used, on the sign-in
+   screen, with the form ready. Silence there means the callback error handling regressed — it is
+   the difference between a player knowing to ask for another link and concluding the app is broken.
+6. Create a tournament, open the invite card, and **scan the QR from a phone**. It should resolve
    `/join/THR-…` from a cold load — this is the check that `not_found_handling` is working, and it
    cannot be done from the desktop tab that already has the app loaded.
-5. Join from that phone, draw a round, score a hole, and watch the leaderboard move on the other
+7. Join from that phone, draw a round, score a hole, and watch the leaderboard move on the other
    device without a refresh. That exercises the Realtime broadcast, which is the part that fails
    silently if `SUPABASE_KEY` is the wrong key.
 

@@ -9,16 +9,27 @@ import { useState, type FormEvent } from 'react';
 
 import { sendMagicLink } from '../../lib/supabase';
 
-export function LoginPage() {
+/**
+ * `notice` is why the last attempt failed — an expired or already-used link.
+ * It arrives from the URL rather than from this form, so it is shown until the
+ * next submit replaces it with whatever that attempt produces.
+ */
+export function LoginPage({ notice }: { notice?: string | null } = {}) {
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+
+  const message = error ?? (dismissed ? null : (notice ?? null));
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     setSending(true);
     setError(null);
+    // The old link's failure stops being the news the moment they ask for a new
+    // one; whatever this attempt does is.
+    setDismissed(true);
     try {
       // Back to wherever they started, so a link shared into a group chat lands
       // people on the tournament rather than on a generic home screen.
@@ -73,7 +84,7 @@ export function LoginPage() {
           {sending ? 'Sending…' : 'Send me a link'}
         </button>
       </form>
-      {error && <p role="alert">{error}</p>}
+      {message && <p role="alert">{message}</p>}
       <p className="muted small">We&rsquo;ll email you a link that signs you in on this device.</p>
     </main>
   );

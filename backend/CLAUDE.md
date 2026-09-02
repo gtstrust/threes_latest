@@ -138,12 +138,14 @@ value for the `backend` service for this reason.
 
 ### Implementation status
 
-Every router is implemented — **no 501 stubs remain** — and every part of the scoring engine now
-has a caller. What is left of the backend is M9 in `../ROADMAP.md` (Supabase Realtime), which is
-only a refetch signal for the leaderboard endpoints and is parked until `frontend/` exists.
+Every router is implemented — **no 501 stubs remain** — and every part of the scoring engine has a
+caller. M9 (Supabase Realtime) is done and verified against the real project. Phase 1 and Phase 2
+are both code-complete.
 
-Follow the `rounds` or `scores` slice as the template — both are recent and show the layering in
-full.
+`../ROADMAP.md` is the source of truth for what is built; this file does not restate it, because the
+two copies drifted apart once already.
+
+Follow the `rounds` or `scores` slice as the template — both show the layering in full.
 
 ### The leaderboard
 
@@ -227,11 +229,14 @@ not care, but two things about Supabase do not apply locally:
 - **`public` is served to the internet.** Supabase exposes it through PostgREST, and the key that
   reaches it is the *publishable* one the frontend ships to every browser. A table created by
   Alembic has RLS **off** and inherits grants for `anon`/`authenticated`, so without intervention
-  all eleven tables are readable and writable by anyone who reads the site's JavaScript. Migration
+  all twelve tables are readable and writable by anyone who reads the site's JavaScript. Migration
   `20260824_0006` enables RLS on every table and defines **no policies**: PostgREST matches nothing
   and sees nothing, while the app connects as the tables' owner and bypasses RLS untouched.
   This is not the RLS ADR-010 rejected — that was a *policy* restating `require_can_view` in SQL.
   A blanket deny encodes no rule, so there is nothing to drift.
+  **A table added after `0006` has to enable RLS itself** — `0006` is a snapshot, not a rule. The
+  twelfth table, `tournament_reminders`, does so in its own migration (`20260829_0013`). Any new
+  table must do the same, or it ships readable to the internet.
 - **Alembic's own table was the gap.** `alembic_version` is created by Alembic, not by our models,
   so `0006` missed it — and `anon` could not merely read it but **UPDATE** it, which corrupts every
   future migration while touching no tournament data. `20260824_0007` revokes the grants outright
@@ -286,16 +291,59 @@ surfaces as a raw integrity error.
 
 ### Authorization
 
-Beyond "holds a valid JWT", three guards in `app/core/deps.py` carry all of it:
+Beyond "holds a valid JWT", five guards in `app/core/deps.py` carry all of it:
 
 - `require_course_owner` — courses are shared reference data, readable by anyone authenticated,
   editable only by whoever created them.
 - `require_organiser` — anything that changes a tournament, its field, or its rounds.
 - `require_can_view` — reading a tournament: the organiser, or anyone in the field. Async, unlike
-  the other two, because it has to look the caller up in the participant list.
+  the first two, because it has to look the caller up in the participant list.
+- `require_group_member` — entering a score: someone in that group, or the organiser. Async, for the
+  same reason.
+- `reject_fun_round` — not authorization so much as visibility. A fun round is a `tournaments` row
+  with `kind = FUN_ROUND`, so the tournament-management routes would otherwise happily operate on
+  one. It raises **404**, not 403: to a caller on `/tournaments/{id}`, a fun round does not exist.
 
 These are plain functions, not FastAPI dependencies — the route fetches the tournament/course
 first (via its local `_get_or_404` helper) and then calls the guard.
+
+### The Phase 2 surface
+
+Five slices landed after the sections above were written. They follow the same layering, so the
+notes here are only what is surprising about each.
+
+- **Fun rounds** — `api/fun_rounds.py`, `services/fun_round.py`. A fun round *is* a tournament row
+  (`kind = FUN_ROUND`), which is why it inherits the draw, the cascade and the leaderboard without a
+  second implementation. The separation is `reject_fun_round` on the tournament routes; see
+  "Authorization" above.
+- **Join and referral codes** — `api/join.py`, `services/join_code.py`. `join_code.py` is pure and
+  synchronous, alongside `scoring.py` and `grouping.py`, and is tested exhaustively for that reason.
+  Uniqueness is the database's job: `generate_code` draws from `secrets` and the caller retries
+  against the unique constraint, because guaranteeing it in the function would mean a read before
+  every write and still race.
+- **Reminders and mail** — `services/reminders.py`, `services/mail.py`, `repositories/reminder.py`.
+  `build_mailer()` mirrors `build_notifier()`: it returns a `NullMailer` unless both
+  `RESEND_API_KEY` and `EMAIL_FROM` are really configured, so local runs and the suite send nothing.
+  A failed send is survivable by design — `tests/conftest.py` ships a `FailingMailer` to prove it.
+- **`/internal`** — `api/internal.py`, the cron entry point for the reminder sweep. Auth is an
+  `X-Cron-Key` header compared with `secrets.compare_digest`, not a JWT. **An unconfigured
+  `CRON_SECRET` gives 404, not 503** — an internal route should not advertise that it exists — and a
+  wrong key gives 403. Driven by the manual `reminder-sweep.yml` workflow; its hourly cron is
+  commented out.
+- **Player caps and stats** — `max_players` is nullable on `tournaments` (absent means uncapped, not
+  zero). Stats live in `services/stats.py` behind `/players/me/stats` and
+  `/players/me/stats/courses`.
+
+### Scripts
+
+`scripts/` is not part of the app and is not imported by it:
+
+- `dev_token.py --email you@example.com` mints an HS256 token for Swagger. The `HTTPBearer`
+  description points at it, so this is the documented way in.
+- `check_db_url.py --connect` is the deploy pre-flight: it checks a `DATABASE_URL` before Fly does.
+  Worth running against the pooler string, which is the part that usually goes wrong.
+- `demo_tournament.py` writes a full tournament through the API. **Do not point it at a server wired
+  to Supabase** — there is no DELETE for a tournament or a course, so the data stays.
 
 ### Where the tournament lifecycle actually lives
 
