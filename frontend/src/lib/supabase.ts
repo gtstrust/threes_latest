@@ -20,6 +20,14 @@ export const supabase = createClient(env.supabaseUrl, env.supabasePublishableKey
     detectSessionInUrl: true,
     persistSession: true,
     autoRefreshToken: true,
+    // Stated rather than inherited. This is the SDK's current default, and every
+    // part of the app assumes it: the callback is read out of the fragment, and
+    // there is no `exchangeCodeForSession` anywhere. The day that default flips
+    // to PKCE, the link comes back as `?code=` instead, `_getSessionFromURL`
+    // throws into an internal `.catch()` that only debug-logs, and login dies in
+    // production with a green build and no error on screen. Naming it means an
+    // SDK upgrade cannot change the flow without someone deciding to.
+    flowType: 'implicit',
   },
 });
 

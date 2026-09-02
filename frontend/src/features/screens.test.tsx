@@ -312,6 +312,7 @@ function show(ui: ReactNode) {
     },
     loading: false,
     error: null,
+    authError: null,
     retryProfile: vi.fn(),
   };
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

@@ -17,6 +17,7 @@ import type { Session } from '@supabase/supabase-js';
 import { api, ApiError } from '../../lib/api';
 import { supabase } from '../../lib/supabase';
 import type { Player } from '../../lib/types';
+import { takeCallbackError } from './callback-error';
 import { captureReferral, takeReferral } from './referral';
 import { SessionContext, type SessionState } from './session-context';
 
@@ -25,6 +26,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [player, setPlayer] = useState<Player | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Read at mount rather than in an effect: this is a fact about the URL the app
+  // was opened with, so it is known before the first render and never changes
+  // after. `takeCallbackError` memoises, which is what makes it safe as a lazy
+  // initialiser — StrictMode calls this twice, and the first call is the one that
+  // takes the error off the URL.
+  const [authError] = useState(takeCallbackError);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
@@ -90,6 +97,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     player,
     loading,
     error,
+    authError,
     retryProfile: () => setAttempt((n) => n + 1),
   };
 

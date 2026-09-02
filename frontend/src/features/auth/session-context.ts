@@ -22,6 +22,13 @@ export type SessionState = {
   /** True until the first auth check settles, so guards don't bounce a signed-in user. */
   loading: boolean;
   error: string | null;
+  /**
+   * Why the last sign-in attempt failed, if it did — an expired or already-used
+   * magic link. Distinct from `error`, which is a signed-in user whose profile
+   * call failed: this one has no session, so it belongs on the login screen
+   * beside the form that fixes it. See `callback-error.ts`.
+   */
+  authError: string | null;
   retryProfile: () => void;
 };
 

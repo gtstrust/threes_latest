@@ -36,6 +36,7 @@ function renderGate(state: Partial<SessionState>) {
     player: null,
     loading: false,
     error: null,
+    authError: null,
     retryProfile: vi.fn(),
     ...state,
   };

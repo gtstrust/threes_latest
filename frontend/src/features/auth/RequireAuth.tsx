@@ -13,7 +13,7 @@ import { LoginPage } from './LoginPage';
 import { useSession } from './session-context';
 
 export function RequireAuth({ children }: { children: ReactNode }) {
-  const { session, player, loading, error, retryProfile } = useSession();
+  const { session, player, loading, error, authError, retryProfile } = useSession();
 
   if (loading) {
     return (
@@ -23,7 +23,10 @@ export function RequireAuth({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!session) return <LoginPage />;
+  // A failed link lands here with no session, so the message travels on to the
+  // sign-in screen rather than being shown on one of the states below — those
+  // all assume a session exists, and none of them offers the form that fixes it.
+  if (!session) return <LoginPage notice={authError} />;
 
   if (error) {
     return (
