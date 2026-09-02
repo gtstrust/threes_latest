@@ -6,34 +6,28 @@ Threes is a short-form competitive golf platform where players compete over 3-ho
 
 **MVP Target:** Corporate Golf Days — structured events where an organiser controls the entire course.
 
-**MVP is a lean validation build** — web-only, no native apps, no AI features, no offline-first sync, no Fun Rounds. See [`THREES_STRATEGY.md`](./THREES_STRATEGY.md) for the rationale and [`ROADMAP.md`](./ROADMAP.md) for what's Phase 1 vs Phase 2. The goal is to run one real corporate golf day, paid for via the per-event organiser fee, before investing in the full-featured build.
+**MVP is a lean validation build** — web-only, no native apps, no AI features, no offline-first sync. See [`THREES_STRATEGY.md`](./THREES_STRATEGY.md) for the rationale and [`ROADMAP.md`](./ROADMAP.md) for what's Phase 1 vs Phase 2. The goal is to run one real corporate golf day, paid for via the per-event organiser fee, before investing in the full-featured build.
 
 ## Current Implementation Status
 
-`backend/`, `frontend/` and `docs/` all exist. Within `docs/`, only `DEPLOYMENT.md` is written —
-`ARCHITECTURE.md`, `API.md` and `SECURITY.md` in the structure below are still target layout.
+**Phase 1 and Phase 2 are both code-complete, backend and frontend.** The remaining milestone is
+the thing itself: running one real corporate golf day.
 
-Implemented end-to-end in the backend: **auth, players, courses/holes, tournaments (with the
-ADR-003 state machine), participants, rounds/groups (the shotgun-start draw), score entry
-(the ADR-007 cascade, persisted), and the leaderboard**. **No stub routers remain** — every route
-is real, and every part of the scoring engine now has a caller.
+Two files own status, and this one deliberately does not duplicate them — the copies drifted apart
+once already:
 
-Score entry landed as `hole_scores` (raw strokes + the points each earned) and `hole_results`
-(what the cascade decided, and which level decided it). The leaderboard reads the former as
-`SUM(points) GROUP BY participant_id`, exactly as ADR-009 intended, and ranks it with
-`rank_leaderboard`. Two endpoints: `GET /tournaments/{id}/leaderboard` (cumulative) and
-`GET /rounds/{id}/leaderboard` (one round).
+- **[`ROADMAP.md`](./ROADMAP.md) is the source of truth for what is built** and what each phase
+  covers. Check it before assuming a feature is missing.
+- **[`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md) is the source of truth for what is deployed**, and
+  is the runbook. Note that the backend is live — a bad migration is a production problem now, not
+  a local one.
 
-**Supabase Realtime** (`ROADMAP.md` M9) is done and verified against the real project: scoring a
-hole broadcasts a contentless "the board moved" ping on `tournament:{id}` — ADR-010 — which a
-subscribed client answers by refetching. It is off unless a real Supabase project is configured, so
-local runs and the test suite are unaffected, and it needs a **secret** key (`sb_secret_…`); the
-broadcast endpoint rejects a publishable one.
+Within `docs/`, only `DEPLOYMENT.md` is written — `ARCHITECTURE.md`, `API.md` and `SECURITY.md` in
+the structure below are still target layout.
 
-**Phase 1 is complete, backend and frontend.** Phase 2 is two of six done — Fun Rounds and
-invite/join-links + QR (see `ROADMAP.md`). What has *not* happened is a deployment: everything
-still runs on `localhost`, which is the last thing between this build and the Phase 1 milestone.
-`docs/DEPLOYMENT.md` is the runbook and the files it needs are committed; nothing is deployed.
+**The ADRs live in this file**, under "Architecture Decisions" below — not in `docs/`. ADR-001
+through ADR-010 are cited all over the codebase, tests and commit messages, and this is the only
+place they resolve to.
 
 See [`backend/CLAUDE.md`](./backend/CLAUDE.md) for backend-specific commands, the auth/JWT model,
 and implementation gotchas (e.g. new models must be registered in `app/models/__init__.py` or
@@ -46,68 +40,62 @@ threes/
 ├── backend/                  # FastAPI Python backend
 │   ├── app/
 │   │   ├── api/              # Route handlers (routers)
-│   │   │   ├── auth.py
-│   │   │   ├── tournaments.py
-│   │   │   ├── rounds.py
-│   │   │   ├── groups.py
-│   │   │   ├── scores.py
-│   │   │   ├── leaderboard.py
-│   │   │   ├── courses.py
-│   │   │   ├── participants.py
-│   │   │   └── players.py
-│   │   ├── core/             # Config, security, dependencies
-│   │   │   ├── config.py
-│   │   │   ├── security.py
-│   │   │   └── deps.py
-│   │   ├── models/           # SQLAlchemy ORM models
+│   │   │   ├── auth.py           courses.py      players.py
+│   │   │   ├── tournaments.py    participants.py rounds.py
+│   │   │   ├── groups.py         scores.py       leaderboard.py
+│   │   │   ├── fun_rounds.py     join.py         # Phase 2
+│   │   │   └── internal.py       # cron-only, X-Cron-Key auth
+│   │   ├── core/             # config.py, db.py, deps.py, http.py, security.py
+│   │   ├── models/           # SQLAlchemy ORM — 12 tables across 8 modules
 │   │   ├── schemas/          # Pydantic request/response schemas
 │   │   ├── services/         # Business logic layer
-│   │   │   ├── scoring.py    # Points engine + leaderboard ranking (pure)
-│   │   │   ├── score_entry.py # Score entry — persists what scoring.py decides
-│   │   │   ├── leaderboard.py # Standings — zero-fills the field, then ranks it
-│   │   │   ├── tournament.py # Tournament state machine
-│   │   │   ├── grouping.py   # Draw: group sizes + shotgun-start loops (pure)
-│   │   │   ├── round.py      # Round lifecycle — where draw + field + course meet
-│   │   │   ├── course.py
-│   │   │   └── participant.py
+│   │   │   ├── scoring.py        # Points engine + leaderboard ranking (pure)
+│   │   │   ├── score_entry.py    # Persists what scoring.py decides
+│   │   │   ├── leaderboard.py    # Standings — zero-fills the field, then ranks
+│   │   │   ├── tournament.py     # Tournament state machine
+│   │   │   ├── grouping.py       # Draw: group sizes + shotgun loops (pure)
+│   │   │   ├── round.py          # Round lifecycle — draw + field + course
+│   │   │   ├── realtime.py       # ADR-010 broadcast (NullNotifier by default)
+│   │   │   ├── course.py         participant.py  player.py
+│   │   │   └── fun_round.py      join_code.py    reminders.py  mail.py  stats.py
 │   │   ├── repositories/     # Database access layer
 │   │   └── main.py           # FastAPI app entry point
 │   ├── migrations/           # Alembic migrations
-│   ├── tests/
-│   ├── pyproject.toml
-│   ├── Dockerfile
-│   └── alembic.ini
+│   ├── scripts/              # dev_token.py, check_db_url.py, demo_tournament.py
+│   ├── tests/                # ~300 tests; needs a real Postgres
+│   ├── pyproject.toml        alembic.ini    README.md   CLAUDE.md
+│   └── Dockerfile            fly.toml       docker-compose.yml
 ├── frontend/                 # React + Vite web app (PWA)
 │   ├── src/
 │   │   ├── features/         # Feature-first, mirroring the backend's slices
-│   │   │   ├── auth/
-│   │   │   ├── tournaments/
-│   │   │   ├── rounds/
-│   │   │   ├── scoring/
-│   │   │   └── leaderboard/
-│   │   ├── lib/              # env, api client, supabase, realtime, types
+│   │   │   ├── auth/  tournaments/  rounds/  scoring/  leaderboard/  courses/
+│   │   │   └── fun-rounds/  join/  invite/  referrals/  stats/     # Phase 2
+│   │   ├── lib/              # env, api, supabase, realtime, queries, theme, types
+│   │   ├── components/       # ui.tsx — shared Page/Loading/ErrorNote primitives
 │   │   ├── test/
-│   │   └── App.tsx
-│   ├── public/               # PWA icons
-│   ├── index.html
-│   ├── package.json
-│   ├── vite.config.ts
-│   └── vitest.config.ts
-├── docs/                     # Project documentation
-│   ├── ARCHITECTURE.md
-│   ├── API.md
-│   ├── DEPLOYMENT.md
-│   └── SECURITY.md
+│   │   └── App.tsx           # every route is declared here
+│   ├── public/               # _headers, PWA icons
+│   ├── build-env.ts          # build-time VITE_* guard (see vite.config.ts)
+│   ├── wrangler.jsonc        # Cloudflare Worker (static assets, SPA fallback)
+│   ├── .node-version         # 22
+│   └── package.json          vite.config.ts  vitest.config.ts  README.md
+├── docs/
+│   └── DEPLOYMENT.md         # the only one written; the three below are target layout
+│       # ARCHITECTURE.md, API.md, SECURITY.md
 ├── .github/
 │   └── workflows/
-│       ├── backend-ci.yml
-│       ├── frontend-ci.yml
-│       └── deploy-backend.yml   # manual (workflow_dispatch) Fly deploy
-├── CLAUDE.md                 # This file
-├── README.md
+│       ├── backend-ci.yml       frontend-ci.yml
+│       ├── deploy-backend.yml   # manual (workflow_dispatch) Fly deploy
+│       ├── reminder-sweep.yml   # manual; the hourly cron is commented out
+│       └── claude.yml           claude-code-review.yml
+├── CLAUDE.md                 # This file — including all ten ADRs
 ├── ROADMAP.md
-└── CONTRIBUTING.md
+└── THREES_STRATEGY.md
 ```
+
+There is no root `README.md` and no `CONTRIBUTING.md`; `backend/README.md` and `frontend/README.md`
+are the per-package entry points, and the contribution conventions are under "Coding Conventions"
+below.
 
 Note `docker-compose.yml`, `Dockerfile` and `fly.toml` live in **`backend/`**, not at the root —
 the compose file's build context and the Docker build context are both that directory.
@@ -132,11 +120,14 @@ uvicorn app.main:app --reload --port 8000
 # Run tests
 pytest
 pytest --cov=app tests/
+pytest tests/test_scoring.py                                # one file
+pytest tests/test_scoring.py::test_only_the_winner_scores   # one test
+pytest -k "loop"                                            # by name
 
 # Linting & formatting
 ruff check .
 ruff format .
-mypy app/
+mypy app/                     # strict mode is on
 
 # Database migrations
 alembic upgrade head          # Apply all migrations
@@ -144,7 +135,18 @@ alembic revision --autogenerate -m "description"  # Create migration
 alembic downgrade -1          # Rollback last migration
 ```
 
+**Tests need Postgres running, always** — even the pure ones (`test_scoring.py`, `test_grouping.py`),
+because `tests/conftest.py` connects at module import time. The suite uses its own database,
+`threes_test`, which it creates on demand and whose tables it drops after every test; override with
+`TEST_DATABASE_URL`. It refuses to run against a non-local host, for that reason.
+
+**CI runs two checks the commands above don't**: `ruff format --check .` and `alembic upgrade head`.
+A locally clean `ruff check` can still fail CI on formatting, and a model change with no migration
+fails there rather than here.
+
 ### Frontend (React + Vite)
+
+Node 22 (`frontend/.node-version`); npm, with `package-lock.json` committed.
 
 ```bash
 cd frontend
@@ -152,25 +154,45 @@ npm install
 cp .env.example .env          # needs the sb_publishable_ key; see below
 
 npm run dev                   # http://localhost:5173
-npm run build                 # static bundle in dist/
+npm run build                 # tsc -b && vite build → dist/
 npm run preview               # serve the built bundle
 
 npm test                      # vitest, once
 npm run test:watch
+npx vitest run src/lib/env.test.ts   # one file
 npm run typecheck             # tsc -b
 npm run lint                  # oxlint
 ```
 
-The dev server's origin (`localhost:5173`) has to be in the backend's
-`CORS_ORIGINS`, which it is by default.
+The dev server's origin (`localhost:5173`) has to be in the backend's `CORS_ORIGINS`, which it is by
+default — and the port is `strictPort`, so it fails rather than sliding to 5174 and falling out of
+both that list and Supabase's redirect allow-list.
+
+**`npm run build` fails when the `VITE_*` config is absent.** That guard (`requireEnv()` in
+`vite.config.ts`, backed by `build-env.ts`) exists because the site once went live as a blank page
+built from nothing. It is `apply: 'build'` only, so dev and test runs don't trip it.
 
 ### Docker (Full Stack)
 
 ```bash
-docker-compose up -d           # Start all services
-docker-compose down            # Stop all services
-docker-compose logs -f backend # Follow backend logs
+cd backend                     # compose lives here, not at the root
+docker compose up -d           # Postgres on host port 5433 + API on :8000
+docker compose down
+docker compose logs -f backend
 ```
+
+### Deployment
+
+`docs/DEPLOYMENT.md` is the runbook and records the failure modes already hit; this is only the shape
+of it.
+
+- **Backend → Fly.io** (Sydney). `fly deploy` from `backend/`, or run the manual **Deploy Backend**
+  workflow. Migrations are not a deploy step: `fly.toml`'s `release_command` runs
+  `alembic upgrade head` against the new image before it takes traffic.
+- **Frontend → Cloudflare Workers** (static assets, not Pages). Deployed by Cloudflare's dashboard
+  Git integration — **there is no frontend deploy workflow**. The `VITE_*` values belong in the
+  build variables, not the Worker runtime bindings, because Vite inlines them at build time.
+- **Supabase** holds the database and auth. The magic-link redirect allow-list needs `/**`, not `/*`.
 
 ## Architecture Decisions
 
@@ -206,13 +228,6 @@ Native is kept open through the **PWA**, not through the framework: the app inst
 
 The cost, accepted: if Threes later wants genuinely native apps with native feel, Flutter or React Native means writing the UI a second time. That is a Phase 3 problem, and it is smaller than shipping a slow pilot.
 
-### ADR-008: Play statuses are owned by the round endpoints
-`ROUND_IN_PROGRESS` and `ROUND_COMPLETE` cannot be set through `POST /tournaments/{id}/status`. Drawing a round and starting play are one action (`POST /tournaments/{id}/rounds`), as are finishing a round and ending it (`POST /rounds/{round_id}/complete`).
-
-Allowing the status to move on its own would let a tournament sit in `ROUND_IN_PROGRESS` with no round drawn, or in `ROUND_COMPLETE` with a round still marked in progress — two sources of truth quietly disagreeing. The status endpoint still owns the registration transitions and `ROUND_COMPLETE → TOURNAMENT_COMPLETE`.
-
-The readiness check for "no course set" moved into the draw for the same reason: it's now the only route to `ROUND_IN_PROGRESS`, so a copy left on the status endpoint would have been unreachable.
-
 ### ADR-007: Holes are never halved — three-level tie-break
 A hole has exactly one winner (1 pt) or no winner at all (everyone 0 pts). **There are no half-points**, so points are always integers.
 
@@ -233,6 +248,13 @@ Because the tie-breaks are scoped to the players they concern, "no winner" is un
 The overall leaderboard breaks level players on **fewest total strokes across the loop**. This deliberately replaces countback on the hardest-ranked hole, which would have required the organiser to enter a difficulty ranking for every hole at setup.
 
 **Forward compatibility with handicaps (Phase 3):** because the client submits only raw strokes (ADR-002) and points are always derived server-side, net scoring can be layered on later without changing the score-entry path or re-migrating stored scores.
+
+### ADR-008: Play statuses are owned by the round endpoints
+`ROUND_IN_PROGRESS` and `ROUND_COMPLETE` cannot be set through `POST /tournaments/{id}/status`. Drawing a round and starting play are one action (`POST /tournaments/{id}/rounds`), as are finishing a round and ending it (`POST /rounds/{round_id}/complete`).
+
+Allowing the status to move on its own would let a tournament sit in `ROUND_IN_PROGRESS` with no round drawn, or in `ROUND_COMPLETE` with a round still marked in progress — two sources of truth quietly disagreeing. The status endpoint still owns the registration transitions and `ROUND_COMPLETE → TOURNAMENT_COMPLETE`.
+
+The readiness check for "no course set" moved into the draw for the same reason: it's now the only route to `ROUND_IN_PROGRESS`, so a copy left on the status endpoint would have been unreachable.
 
 ### ADR-009: Scores are stored in two tables — reported and derived
 A scored hole is written to **two** tables. `hole_scores` is what the players reported: one row per participant, holding their strokes and the points those strokes earned them. `hole_results` is what the ADR-007 cascade made of it: one row per group per hole, holding the winner, which of the three levels decided it, and the tie-break answer if one was used.
@@ -320,18 +342,25 @@ call sites and a second event type, and waits until the frontend shows it is nee
 ### Backend (.env)
 
 Only these are read (`app/core/config.py`; `extra="ignore"`, so anything else in `.env` is
-silently dropped rather than rejected). No `ANTHROPIC_API_KEY` or `EMAIL_FROM` — email/reminders
-are Phase 2 (the reminders workstream pulls an outbound-mail channel forward) and AI generation is
-Phase 3.
+silently dropped rather than rejected). No `ANTHROPIC_API_KEY` — AI generation is Phase 3.
 
 ```
 SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_KEY=your-service-role-key
-SUPABASE_JWT_SECRET=your-jwt-secret
+SUPABASE_KEY=your-secret-key            # sb_secret_… — a publishable key breaks the broadcast
+SUPABASE_JWT_SECRET=your-jwt-secret     # a random local string, NOT a Supabase value
 DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5433/threes_dev
 ENVIRONMENT=development
 CORS_ORIGINS=http://localhost:3000,http://localhost:8080
+APP_URL=http://localhost:5173           # what invite and reminder links point at
+RESEND_API_KEY=your-resend-key          # outbound mail; unset = NullMailer
+EMAIL_FROM=Threes <noreply@example.com>
+CRON_SECRET=your-cron-secret            # X-Cron-Key on /internal; unset = those routes 404
 ```
+
+The literal placeholder values in `.env.example` are load-bearing: `PLACEHOLDER_SETTINGS` in
+`config.py` treats them as "unconfigured", which is how the app boots, and the test suite runs,
+without a real Supabase project. `DATABASE_URL` is also coerced — a bare `postgresql://` is
+rewritten to `postgresql+asyncpg://` rather than failing on a missing driver.
 
 ### Frontend (.env)
 
@@ -389,7 +418,7 @@ VITE_API_BASE_URL=http://localhost:8000
 - **Leaderboard Tie-break**: Level players are separated by fewest total strokes across the loop.
   (This replaces the earlier "countback on the hardest hole" rule, which needed a per-hole difficulty
   ranking the organiser would have had to enter.)
-- **Fun Round**: A casual, non-tournament round between friends. **Phase 2** — not in MVP.
+- **Fun Round**: A casual, non-tournament round between friends — **built** (Phase 2). Underneath it is a `tournaments` row with `kind = FUN_ROUND`, which is why it gets the draw, scoring and leaderboard for free. The tournament-management routes hide those rows behind a **404** (`reject_fun_round`), so the two never leak into each other's screens.
 - **Participant**: Someone playing in a tournament — the identity groups and scores foreign-key to,
   never a Player directly. That indirection is what lets a Virtual Player be grouped and scored like
   anyone else. `display_name` is a snapshot taken at registration, so a leaderboard doesn't rename
@@ -402,6 +431,23 @@ VITE_API_BASE_URL=http://localhost:8000
   the organiser can add or remove right up until `ROUND_IN_PROGRESS`. That override exists because
   ADR-003 has no route back to `REGISTRATION_OPEN`, so without it a no-show would be stuck in the
   draw. Once play starts the field is fixed.
+- **Join Code**: A short, revocable code on every tournament and fun round — `THR-8K2QF`, five
+  characters from an alphabet with the ambiguous glyphs (`0`/`O`, `1`/`I`/`L`) removed, because codes
+  get read aloud and retyped off a phone in daylight. Backs the invite link and its QR
+  (`GET`/`POST /join/{code}`). Deliberately **not** the id: an id can never be revoked, and a printed
+  link outlives its event.
+- **Referral Code**: The same shape with a `MATE-` prefix, standing for the player who brought
+  somebody in rather than for an event. The prefix is the point — a code pasted into the wrong box
+  fails loudly instead of resolving to something unrelated. Captured from the URL *before* the
+  magic-link round trip discards the query string, then passed to `POST /players`.
+- **Player Cap**: `tournaments.max_players`, nullable — a cap is optional and its absence means
+  uncapped, not zero.
+- **Reminder**: A record that a reminder went out, in `tournament_reminders`, with a `kind` of
+  `UPCOMING` (the scheduled sweep, once per event) or `MANUAL` (the organiser pressing the button,
+  any number of times). The split is what makes the sweep idempotent without stopping the organiser.
+  Delivered through `services/mail.py`; unset `RESEND_API_KEY` means a `NullMailer`, so nothing is
+  sent locally or in tests.
+- **Stats**: Per-player history under `/players/me/stats` and `/players/me/stats/courses`.
 - **Organiser Fee**: The MVP monetisation model — **quoted per event and invoiced separately**, billed to the organiser rather than to individual players. There is no published rate and no tier table: the course is the largest input and its price is somebody else's to set, so it varies by venue, day and group size. See `THREES_STRATEGY.md` §1, which is the source for this. Deliberately **not modelled in the database** — no fee field, no amount — because one pilot does not need the platform to know what it cost. Stripe and per-player entry fees are Phase 3.
 - **Sponsor**: A company or brand attached to a tournament (Phase 3). Sponsor name and logo are displayed on leaderboards and invitation emails.
 
@@ -414,6 +460,8 @@ VITE_API_BASE_URL=http://localhost:8000
    Postgres Changes. The message carries no scores — it only tells a client to refetch the
    leaderboard endpoint. See ADR-010 for why Postgres Changes was rejected.
 5. Magic link auth means no passwords are stored. Supabase Auth handles the entire flow.
-6. MVP is a **lean validation build**: web-only, no AI, no offline sync, no Fun Rounds — see `THREES_STRATEGY.md`. The MVP milestone is running one real corporate golf day, with the organiser paying the per-event fee.
-7. Phase 2 — post-pilot engagement & growth. **Built:** **Fun Rounds** (the casual non-tournament flow) and **invite / join-links + QR** (a short revocable join code on every tournament and fun round; `GET`/`POST /join/{code}`). **Remaining:** **player caps**, **reminders** (which pulls an outbound-email channel forward), **referrals**, and **per-player stats / history**. See `ROADMAP.md` for scope and dependencies.
+6. MVP is a **lean validation build**: web-only, no AI, no offline sync — see `THREES_STRATEGY.md`. The MVP milestone is running one real corporate golf day, with the organiser paying the per-event fee.
+7. Phase 2 — post-pilot engagement & growth. **All six workstreams are built**: Fun Rounds,
+   invite / join-links + QR, player caps, reminders (which pulled an outbound-email channel forward),
+   referrals, and per-player stats / history. `ROADMAP.md` has the scope and dependencies.
 8. Phase 3 — later (everything else deferred, folded into one bucket): **handicaps / net scoring**, native iOS/Android apps, offline-first sync, AI invitation/summary generation, standalone longest-drive and closest-to-pin competitions (with their own prizes and leaderboards), social friends, gamification, realtime private channels — plus the commercial build: Stripe payment processing, golf club/corporate accounts, sponsors. Note that longest drive and closest to pin are *captured* in MVP because ADR-007 needs them to break tied holes — what's deferred is treating them as competitions in their own right.
