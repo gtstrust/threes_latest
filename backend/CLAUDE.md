@@ -248,6 +248,14 @@ not care, but two things about Supabase do not apply locally:
 network without IPv6 must use the pooler string from the dashboard instead. CI is the obvious place
 this bites.
 
+**Which pooler matters.** Session mode (5432) gives a client one backend for the life of the
+connection, so asyncpg's prepared statements are still there next time. Transaction mode (6543)
+hands out a different backend per transaction and they are not — `InvalidSQLStatementNameError`,
+intermittently, on whichever routes happen to have cached a statement. `asyncpg_connect_args`
+(`app/core/db.py`) recognises 6543 and disables both statement caches with uniquely-named
+statements, warning as it does. `docs/DEPLOYMENT.md` §1 still asks for session mode; this is the net
+under it, and it is there because the ask was already written down and still got missed.
+
 **Do not point `scripts/demo_tournament.py` at a server wired to Supabase.** It writes a full
 tournament and there is no DELETE for a tournament or a course, so the data stays. The test suite is
 safe by construction: `conftest.py` refuses any non-local `TEST_DATABASE_URL`.
@@ -275,6 +283,27 @@ three things about it are easy to break:
 
 The payload is `{"tournament_id", "round_id"}` and must stay that way. Adding scores to it would
 route data around FastAPI and re-open the authorization question ADR-010 exists to close.
+
+### Why an unhandled 500 looks like a CORS error
+
+Starlette's stack is `ServerErrorMiddleware` → user middleware → `ExceptionMiddleware` → routes. An
+exception nothing catches travels up *past* `CORSMiddleware`, and the 500 that
+`ServerErrorMiddleware` writes never passes back down through the `send` wrapper that adds
+`Access-Control-Allow-Origin`. The browser then reports a CORS failure for a request whose CORS
+configuration is fine, and sends the reader to audit the wrong thing.
+
+`app/core/errors.py` answers inside CORS instead, and `app/main.py` adds it **before**
+`CORSMiddleware` — `add_middleware` inserts at the front, so the last one added is the outermost.
+Two things about it are easy to undo:
+
+- **`@app.exception_handler(Exception)` is not the same fix.** Starlette special-cases the
+  `Exception` and `500` keys and installs them on `ServerErrorMiddleware`, i.e. back outside CORS.
+- **It is a pure ASGI middleware, not a `BaseHTTPMiddleware`.** ADR-010 depends on `BackgroundTasks`
+  running after `get_db` commits, and there is no reason to put a streaming wrapper in that path.
+
+Because the exception is caught, uvicorn never sees it and never logs it — `logger.exception` in the
+middleware is the only record, and `logging.basicConfig` in `main.py` is what gets it to stdout at
+all (uvicorn adds no root handler). `tests/test_errors.py` pins the order and the log.
 
 ### Domain errors and how routes map them
 

@@ -90,12 +90,17 @@ accepts. Putting a genuine Supabase JWT secret in it would hand that power away 
 **`DATABASE_URL` must use the session-mode pooler, port 5432.** Not the transaction pooler on 6543,
 and not the direct host:
 
-- `app/core/db.py` builds the engine without `statement_cache_size=0`, so asyncpg uses prepared
-  statements. Transaction-mode pgbouncer hands out a different backend connection per statement and
-  those prepared statements vanish underneath it — the failure is intermittent `InvalidSQLStatementName`
+- Transaction-mode pgbouncer hands out a different backend connection per transaction, and a
+  prepared statement made on one is gone on the next — intermittent `InvalidSQLStatementName`
   errors under load, which is to say, during an event.
 - `db.<ref>.supabase.co` publishes no A record. It is IPv6-only, and Fly machines are not
   guaranteed to have IPv6 egress to it.
+
+**This warning was already here and was not followed, so the app no longer depends on it.**
+`asyncpg_connect_args` in `app/core/db.py` recognises port 6543 and turns both statement caches off,
+naming each statement uniquely, then logs a warning saying so. A wrong port now costs prepared-statement
+reuse rather than the day. Session mode is still the string to deploy — that saving is real — but it
+is a performance choice again instead of the only thing between a typo and an outage mid-round.
 
 **Copy `<pooler-host>` from the dashboard — Connect → Session pooler — rather than composing it.**
 The fleet is per *project*, not per region: `aws-0-ap-southeast-2` and `aws-1-ap-southeast-2` both
@@ -143,6 +148,11 @@ fly logs --app threes-api --no-tail | tail -40
 fly releases --app threes-api            # which version failed, and when
 ```
 
+**`--no-tail` buffers minutes, not hours** — measured at ~100 lines, which on a healthy app is
+nothing but health checks. A runtime error that happened an hour ago is already gone. Leave
+`fly logs --app threes-api` tailing in one terminal and reproduce the failure in another; that is
+the only reliable way to catch one.
+
 Three errors that name nothing resembling their cause, all seen on the first real deploy:
 
 | What the log says | What is actually wrong |
@@ -150,6 +160,7 @@ Three errors that name nothing resembling their cause, all seen on the first rea
 | `ModuleNotFoundError: No module named 'psycopg2'` | `DATABASE_URL` names no driver. SQLAlchemy's default for a bare `postgresql://` is psycopg2, which this project has never depended on. Use `postgresql+asyncpg://`. |
 | `asyncpg…InternalServerError: (ENOTFOUND) tenant/user postgres.<ref> not found` | Right credentials, wrong pooler fleet. `<pooler-host>` must be the one the dashboard prints for *this* project. |
 | `socket.gaierror: [Errno -2] Name or service not known` | The host does not resolve. Either a placeholder survived, or an unencoded `@` in the password re-split the URL and the host is now a fragment of it. `check_db_url.py` prints the host it actually parsed. |
+| The **browser** reports `blocked by CORS policy: No 'Access-Control-Allow-Origin' header`, and the network tab shows **500** | Not CORS. An unhandled exception used to be answered by Starlette's `ServerErrorMiddleware`, which sits *outside* `CORSMiddleware`, so the 500 went out bare and the browser blamed the only thing it could name. `CatchUnhandledErrors` now answers inside CORS, so the console says 500 and `fly logs` has the traceback. The 500 behind this one was `DATABASE_URL` on 6543 — the row above. |
 
 `fly secrets list` showing every secret as **Staged** is not a cause. An app with no machines yet has
 nowhere to apply them; they land on the first release that succeeds.
