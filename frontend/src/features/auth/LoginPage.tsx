@@ -7,7 +7,8 @@
 
 import { useState, type FormEvent } from 'react';
 
-import { sendMagicLink } from '../../lib/supabase';
+import { env } from '../../lib/env';
+import { sendMagicLink, signInWithPassword, signUpWithPassword } from '../../lib/supabase';
 
 /**
  * `notice` is why the last attempt failed — an expired or already-used link.
@@ -20,8 +21,27 @@ export function LoginPage({ notice }: { notice?: string | null } = {}) {
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  const [password, setPassword] = useState('');
+  const [usingPassword, setUsingPassword] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   const message = error ?? (dismissed ? null : (notice ?? null));
+
+  async function onPasswordSubmit(event: FormEvent) {
+    event.preventDefault();
+    setSending(true);
+    setError(null);
+    setDismissed(true);
+    try {
+      await (creating ? signUpWithPassword : signInWithPassword)(email, password);
+      // Nothing to do on success: `SessionProvider` is subscribed to
+      // `onAuthStateChange` and takes it from here.
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not sign in.');
+    } finally {
+      setSending(false);
+    }
+  }
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
@@ -65,7 +85,9 @@ export function LoginPage({ notice }: { notice?: string | null } = {}) {
         <br />
         One match.
       </h1>
-      <p className="muted">Sign in with your email — no password to remember.</p>
+      {/* Describes the link, not the screen: the password fallback below would
+          make "no password to remember" read as a contradiction. */}
+      <p className="muted">Sign in with your email — we&rsquo;ll send you a link.</p>
       <form onSubmit={onSubmit}>
         <label htmlFor="email">Email</label>
         <input
@@ -86,6 +108,49 @@ export function LoginPage({ notice }: { notice?: string | null } = {}) {
       </form>
       {message && <p role="alert">{message}</p>}
       <p className="muted small">We&rsquo;ll email you a link that signs you in on this device.</p>
+
+      {env.passwordLoginEnabled &&
+        (usingPassword ? (
+          <form onSubmit={onPasswordSubmit}>
+            <label htmlFor="password">Password</label>
+            <input
+              id="password"
+              name="password"
+              type="password"
+              // Tells a password manager which of the two this is, so it offers
+              // the saved one rather than a generated one, or the reverse.
+              autoComplete={creating ? 'new-password' : 'current-password'}
+              required
+              minLength={6}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+            <button type="submit" disabled={sending || !email || password.length < 6}>
+              {sending ? 'Signing in…' : creating ? 'Create account' : 'Sign in'}
+            </button>
+            <p className="muted small">
+              {creating ? (
+                <>
+                  Uses the email above. Already have an account?{' '}
+                  <button type="button" className="link" onClick={() => setCreating(false)}>
+                    Sign in instead
+                  </button>
+                </>
+              ) : (
+                <>
+                  No account yet?{' '}
+                  <button type="button" className="link" onClick={() => setCreating(true)}>
+                    Create one
+                  </button>
+                </>
+              )}
+            </p>
+          </form>
+        ) : (
+          <button type="button" className="ghost" onClick={() => setUsingPassword(true)}>
+            Can&rsquo;t get the email? Use a password
+          </button>
+        ))}
     </main>
   );
 }

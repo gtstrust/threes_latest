@@ -55,3 +55,26 @@ describe('configuration', () => {
     ).rejects.toThrow(/secret key/i);
   });
 });
+
+describe('the password login flag', () => {
+  it('is on when unset, because it exists for people already locked out', async () => {
+    const { env } = await loadEnv({ VITE_ENABLE_PASSWORD_LOGIN: undefined });
+
+    expect(env.passwordLoginEnabled).toBe(true);
+  });
+
+  it.each([['false'], ['0'], ['FALSE'], [' false ']])('is off for %o', async (value) => {
+    const { env } = await loadEnv({ VITE_ENABLE_PASSWORD_LOGIN: value });
+
+    expect(env.passwordLoginEnabled).toBe(false);
+  });
+
+  it.each([['true'], ['1'], ['yes'], ['flase']])('stays on for %o', async (value) => {
+    // Including the typo deliberately: this is the only way into the app while
+    // magic links are not arriving, so a misspelt "false" must not silently
+    // remove it. Off has to be spelled correctly to count.
+    const { env } = await loadEnv({ VITE_ENABLE_PASSWORD_LOGIN: value });
+
+    expect(env.passwordLoginEnabled).toBe(true);
+  });
+});

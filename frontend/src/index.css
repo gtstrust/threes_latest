@@ -296,6 +296,20 @@ button.ghost,
 
 button.ghost.danger { color: var(--danger); }
 
+/* A button that has to read as part of a sentence. The sign-in / create-account
+   switches sit inside running text, where the default 3rem green block would
+   look like a second primary action competing with the real one. */
+button.link {
+  min-height: 0;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--green);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
 select {
   font: inherit;
   min-height: 3rem;
