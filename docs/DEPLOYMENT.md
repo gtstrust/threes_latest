@@ -30,8 +30,8 @@ credentials that must not pass through a transcript or a commit.
 
 There is a genuine circular dependency: the backend needs to allow the frontend's origin, and the
 frontend needs to know the backend's URL, and neither exists until the other is deployed. Doing
-these out of order produces a magic-link email that redirects to `localhost` — which looks like a
-broken login rather than a misconfiguration.
+these out of order produces a magic-link email that redirects to `localhost:3000` — which looks
+like a broken login rather than a misconfiguration. §3 covers how to spot it before clicking.
 
 1. Deploy the backend. Note its URL.
 2. Create the Worker, pointing `VITE_API_BASE_URL` at that URL. Note the origin it serves on.
@@ -288,15 +288,53 @@ It is the only step here whose failure costs something that has nothing to do wi
 
 In **Authentication → URL Configuration**:
 
-- **Site URL**: `https://app.threes.golf`. This is where magic links land; while it says
-  `localhost:5173` every link emailed to a real player opens a page that does not exist for them.
-- **Redirect URLs**: `https://app.threes.golf`.
+| Field | Value |
+|---|---|
+| Site URL | `https://app.threes.golf` |
+| Redirect URLs | `https://app.threes.golf/**` |
+| Redirect URLs | `http://localhost:5173/**` |
 
-A wildcard for preview builds (`https://*.workers.dev/**`) buys less than it looks like.
-`app/main.py` passes `allow_origins` an exact-match list — Starlette does no pattern matching — so a
-preview build would complete its login and then fail every API call. Letting previews through means
-`allow_origin_regex` in the backend, which is a deliberate decision to let any branch build read
-production data, not a config tweak. Production origin only until that is actually wanted.
+**Both matter, and the second is the one that is easy to get wrong.** Supabase honours the
+`emailRedirectTo` the app asks for only if it matches the allow list. When it does not, the request
+does not fail — it **silently substitutes the Site URL**, mails that instead, and returns success to
+the caller. So a wrong allow list and a wrong Site URL produce one symptom between them, and fixing
+only the Site URL hides the other.
+
+The allow-list entries need `/**` on the end — not `/*`, and not the bare origin.
+`LoginPage.tsx` asks to come back to
+`window.location.origin + window.location.pathname`, so the values that must match are
+`https://app.threes.golf/` for an ordinary sign-in and `https://app.threes.golf/join/THR-8K2QF` for
+somebody who scanned a QR code at registration. Supabase's matching is glob-style: `*` matches "any
+sequence of non-separator characters" and stops at a `/`, `**` crosses them, and a trailing slash is
+significant — their own example notes that `http://localhost:3000/*` does not match
+`http://localhost:3000/foo/`. A bare `https://app.threes.golf` matches neither of ours. `/*` matches
+only the first. `frontend/src/features/auth/LoginPage.test.tsx` pins both strings so the app end of
+this contract cannot drift away from the dashboard end.
+
+The `localhost` entry keeps local sign-in working. Once Site URL is `app.threes.golf`, a dev-server
+login with no matching entry falls back to production — which looks like the dev server being broken.
+
+### Reading it out of the email
+
+`redirect_to` is a plain query parameter on the emailed link, so a mistake here is visible **without
+clicking anything**:
+
+```
+…/auth/v1/verify?token=…&type=magiclink&redirect_to=http://localhost:3000
+```
+
+`localhost:3000` is the specific tell that the fallback fired: nothing in this project uses port
+3000 — Vite dev is 5173, the API is 8000 — so it can only have come from an untouched Supabase Site
+URL. Anything other than the origin you requested the link from means the allow list did not match.
+
+### Preview builds are a different question
+
+A wildcard for preview builds (`https://*.workers.dev/**`) buys less than it looks like — a wildcard
+across *origins*, not across paths, and unrelated to the `/**` above. `app/main.py` passes
+`allow_origins` an exact-match list — Starlette does no pattern matching — so a preview build would
+complete its login and then fail every API call. Letting previews through means `allow_origin_regex`
+in the backend, which is a deliberate decision to let any branch build read production data, not a
+config tweak. Production origin only until that is actually wanted.
 
 ---
 
@@ -366,9 +404,10 @@ Then, in a browser, in this order — each step depends on the one before it:
    incomplete.
 2. Load `https://threes.golf`. It should 301 to `app.threes.golf` — the redirect is the whole reason
    a domain this short is worth owning, since it is what gets printed on a sign.
-3. Request a magic link and follow it from a real inbox. It must land on `app.threes.golf`, not
-   `localhost`. The app then calls `POST /players`; a CORS error here means `CORS_ORIGINS` does not
-   match the origin exactly (scheme and host, no trailing slash).
+3. Request a magic link and, before clicking it, read `redirect_to=` out of the URL. It must say
+   `https://app.threes.golf/`; `localhost:3000` means Supabase fell back to Site URL because the
+   allow list did not match (§3). Then follow it. The app calls `POST /players`; a CORS error here
+   means `CORS_ORIGINS` does not match the origin exactly (scheme and host, no trailing slash).
 4. Create a tournament, open the invite card, and **scan the QR from a phone**. It should resolve
    `/join/THR-…` from a cold load — this is the check that `not_found_handling` is working, and it
    cannot be done from the desktop tab that already has the app loaded.
