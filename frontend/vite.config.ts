@@ -1,6 +1,44 @@
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+
+import { findEnvProblems } from './build-env.ts';
+
+/**
+ * Fail the build when the configuration it would inline is not there.
+ *
+ * `apply: 'build'` is load-bearing rather than tidiness. `vitest.config.ts`
+ * imports this file, and `vite dev` reads it on every start — a check that ran
+ * in either would make a missing `.env` break the test suite instead of the
+ * thing it is actually about. Only a build bakes values into an artefact that
+ * outlives the process, and only a build is worth stopping.
+ *
+ * `loadEnv` rather than `process.env` because it reads both: the `.env` files a
+ * developer has locally, and the prefixed variables Cloudflare and GitHub
+ * Actions inject. The guard should not care which one it is looking at.
+ */
+function requireEnv(): Plugin {
+  return {
+    name: 'threes:require-env',
+    apply: 'build',
+    config(_config, { mode }) {
+      const problems = findEnvProblems(loadEnv(mode, process.cwd(), 'VITE_'));
+      if (problems.length > 0) {
+        throw new Error(
+          [
+            'Cannot build: the frontend configuration is incomplete.',
+            ...problems.map((problem) => `  - ${problem}`),
+            '',
+            'Vite inlines VITE_* at build time, so building without them produces a',
+            'bundle that throws before it renders. Locally: copy .env.example to .env.',
+            'On Cloudflare: Workers & Pages -> the Worker -> Settings -> Build ->',
+            'Variables and secrets. See docs/DEPLOYMENT.md section 2.',
+          ].join('\n'),
+        );
+      }
+    },
+  };
+}
 
 export default defineConfig({
   // Pin the dev port and refuse to start if it is taken, rather than silently
@@ -9,6 +47,7 @@ export default defineConfig({
   // cannot reach the API, which reads to a user as "Could not reach the server".
   server: { port: 5173, strictPort: true },
   plugins: [
+    requireEnv(),
     react(),
     VitePWA({
       registerType: 'autoUpdate',
