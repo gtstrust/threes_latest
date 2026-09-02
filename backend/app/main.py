@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -16,7 +18,16 @@ from app.api import (
     tournaments,
 )
 from app.core.config import settings
+from app.core.errors import CatchUnhandledErrors
 from app.schemas.common import HealthResponse
+
+# Uvicorn configures its own loggers and adds no handler to the root one, so
+# without this anything logged outside `uvicorn.*` falls through to
+# `logging.lastResort` and arrives unformatted, or not at all. Uvicorn's loggers
+# do not propagate, so this adds no duplicate access log. It is what makes the
+# traceback in `CatchUnhandledErrors` — and config.py's DATABASE_URL warning —
+# actually reach `fly logs`.
+logging.basicConfig(level=logging.INFO)
 
 API_DESCRIPTION = """\
 Short-form competitive golf: 3-hole loops instead of 18-hole rounds.
@@ -40,6 +51,12 @@ once after signing in before anything else will find you.
 """
 
 app = FastAPI(title="Threes API", description=API_DESCRIPTION)
+
+# Order is the point, and it reads backwards: `add_middleware` inserts at the
+# front, so the *last* one added is the outermost. CORS must be outside the error
+# handler, or the 500 it writes goes out without CORS headers and the browser
+# reports a CORS failure instead of the error. See `app/core/errors.py`.
+app.add_middleware(CatchUnhandledErrors)
 
 app.add_middleware(
     CORSMiddleware,
