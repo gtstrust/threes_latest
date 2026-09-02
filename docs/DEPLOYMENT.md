@@ -34,9 +34,12 @@ these out of order produces a magic-link email that redirects to `localhost` —
 broken login rather than a misconfiguration.
 
 1. Deploy the backend. Note its URL.
-2. Create the Pages project, pointing `VITE_API_BASE_URL` at that URL. Note the Pages URL.
-3. Set the backend's `CORS_ORIGINS` to the Pages URL and redeploy.
-4. Set Supabase's Site URL and redirect allow-list to the Pages URL.
+2. Create the Worker, pointing `VITE_API_BASE_URL` at that URL. Note the origin it serves on.
+3. Set the backend's `CORS_ORIGINS` to that origin and redeploy.
+4. Set Supabase's Site URL and redirect allow-list to that origin.
+
+Both ends are now settled: the backend is `https://threes-api.fly.dev` and the frontend is
+`https://app.threes.golf`, so the loop above only has to be walked again if either moves.
 
 ---
 
@@ -183,7 +186,9 @@ nothing matched. That is what makes a cold `/join/THR-…` from a QR code resolv
 `_headers` is unaffected and still committed: it decorates responses rather than routing them, so a
 `/*` rule there carries no equivalent hazard.
 
-Environment variables (all three are required — `src/lib/env.ts` refuses to start without them):
+### Environment variables — and which of the two places they go
+
+All three are required:
 
 ```
 VITE_SUPABASE_URL=https://<ref>.supabase.co
@@ -191,14 +196,27 @@ VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 VITE_API_BASE_URL=https://threes-api.fly.dev
 ```
 
-**The publishable key, never the secret one.** Vite inlines `VITE_*` at build time, so whatever goes
-here ships inside a static asset that anyone can read. `src/lib/env.ts` throws on startup if it
-finds an `sb_secret_` prefix, but do not rely on that to catch a mistake — the secret key bypasses
-row level security entirely.
+They belong in **Settings → Build → Variables and secrets**, as plain text rather than encrypted
+secrets — encrypted ones are not exposed to the build.
+
+**A Worker has a second, unrelated "Variables and secrets" under its runtime settings, and putting
+them there does nothing.** Those are bindings handed to Worker code at request time; this site is
+static assets with no server code to read them, and Vite finished hours earlier. Vite inlines
+`VITE_*` **at build time**, which is the whole difficulty: the values have to exist when
+`npm run build` runs, or there is nothing to inline and no later setting can supply it.
+
+**Changing a build variable does not rebuild.** The live deployment keeps whatever bundle it already
+has. Re-run the build from **Deployments → Retry**, or push a commit.
+
+**The publishable key, never the secret one.** Whatever goes here ships inside a static asset that
+anyone can read. Two guards check this, and neither is a substitute for reading the prefix: the
+build refuses an `sb_secret_` value (`frontend/build-env.ts`), and `src/lib/env.ts` refuses one
+again at startup.
 
 ### When the build fails
 
-Four things account for almost everything, and none of them fails in a way that names itself.
+Six things account for almost everything, and only the fifth fails in a way that names itself —
+which is why it was added.
 
 | What the log says | What is actually wrong |
 |---|---|
@@ -206,6 +224,8 @@ Four things account for almost everything, and none of them fails in a way that 
 | `npm error code ENOENT ... package.json` | **Root directory** is not `frontend`. There is no `package.json` at the repository root, by design. |
 | A Vite or esbuild syntax error on a build that passes locally | Node is too old. `vite` declares `^20.19.0 \|\| >=22.12.0`; `frontend/.node-version` and `engines` in `package.json` both pin it, and `NODE_VERSION` in the dashboard overrides them. |
 | The build succeeds, the site loads blank, and the JS request returns HTML | A `/*` catch-all in `_redirects`. On Workers those are followed even when an asset matches, so the whole bundle is served `index.html`. Routing belongs in `wrangler.jsonc`, not `_redirects`. |
+| `Cannot build: the frontend configuration is incomplete` | Exactly what it says — the named `VITE_*` variables are not in the **build** environment. This is the guard working; see the row below for what it is preventing. |
+| The build succeeds, the JS is served correctly, and the page is still blank with a console error naming a `VITE_` variable | An older build, made before the guard existed, with no values to inline. `grep -o 'supabase\.co' dist/assets/index-*.js` on the served bundle returns nothing. Set the build variables and **re-run the build** — the deployed bundle cannot be repaired in place. |
 
 The line to read first is `Detected the following tools from environment:`. It names what Cloudflare
 pinned; **empty means it found no version file at all**, which is the direct evidence for the third
@@ -221,7 +241,7 @@ runbook has to match.
 leaves `threes.golf` free for one later. The apex is not wasted: it redirects, so the short domain is
 still what goes on a printed sign at a registration desk.
 
-Attach `app.threes.golf` to the Pages project and Cloudflare creates the DNS record and issues the
+Attach `app.threes.golf` to the Worker and Cloudflare creates the DNS record and issues the
 certificate. Then three redirect rules, all 301, all to the canonical origin:
 
 ```
@@ -270,8 +290,8 @@ Only needed when you want the app mailing players.
 1. Create a Resend account and **verify the sending domain**. An unverified domain is accepted by
    the API and then quietly not delivered, which looks exactly like the feature not working.
 2. Set `RESEND_API_KEY` and `EMAIL_FROM` (above). `EMAIL_FROM` must be on the verified domain.
-3. Set `APP_URL` to the Pages URL. Links in reminder emails are built from it, and a wrong value
-   produces mail whose links reach nobody — worse than mail that doesn't send.
+3. Set `APP_URL` to `https://app.threes.golf`. Links in reminder emails are built from it, and a
+   wrong value produces mail whose links reach nobody — worse than mail that doesn't send.
 4. For the day-before sweep, add two repository secrets under the `production` environment:
    `API_BASE_URL` (the Fly URL) and `CRON_SECRET` (**the same value** as the Fly secret).
 5. Run the `Reminder Sweep` workflow by hand to check it answers 200, then **restore its schedule** —
