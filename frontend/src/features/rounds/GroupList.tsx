@@ -83,13 +83,19 @@ export function GroupList({
   );
 }
 
-/** How a player went through, in words rather than the stored label. */
+/**
+ * How a player went through, in words rather than the stored label.
+ *
+ * Third person throughout, including the organiser's own call: this line sits
+ * on the draw, which the whole field reads. "Your call" was true for exactly
+ * one viewer and wrong for everyone else looking at the same screen.
+ */
 function reasonFor(advancedBy: AdvancedBy): string {
   return {
     points: 'on points',
     strokes: 'on fewest strokes',
     countback: 'on countback',
-    organiser: 'your call',
+    organiser: "on the organiser's call",
   }[advancedBy];
 }
 

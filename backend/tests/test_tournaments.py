@@ -250,6 +250,22 @@ async def test_a_knockout_can_be_created(client, make_token):
 
 
 @pytest.mark.asyncio
+async def test_the_published_schema_does_not_claim_knockout_is_unbuilt(client, make_token):
+    """The description ships in `/openapi.json`, so a stale one misinforms callers.
+
+    It said "KNOCKOUT is not implemented yet" for a while after it was — the
+    constant and the enum docstring were updated, this string was not, and
+    nothing pointed at it.
+    """
+    schema = (await client.get("/openapi.json")).json()
+    described = schema["components"]["schemas"]["TournamentCreate"]["properties"]["format"]
+
+    assert "not implemented" not in described["description"]
+    assert TournamentFormat.KNOCKOUT.value in described["description"]
+    assert TournamentFormat.ROUND_ROBIN.value in described["description"]
+
+
+@pytest.mark.asyncio
 async def test_a_format_the_platform_cannot_run_is_still_refused(client, make_token):
     """The gate is open, not removed. An unknown format is a 422, not a 500."""
     headers = await _organiser(client, make_token)

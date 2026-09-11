@@ -34,7 +34,10 @@ class TournamentCreate(BaseModel):
     )
     format: TournamentFormat = Field(
         default=TournamentFormat.ROUND_ROBIN,
-        description="Only ROUND_ROBIN is accepted; KNOCKOUT is not implemented yet.",
+        description=(
+            "ROUND_ROBIN redraws the whole field each round and the leaderboard adds "
+            "up; KNOCKOUT makes each group a match and advances one player (ADR-012)."
+        ),
     )
     group_size: GroupSize = Field(
         default=TARGET_GROUP_SIZE,

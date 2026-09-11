@@ -962,6 +962,32 @@ describe('knockout', () => {
     expect(screen.getByText(/wins the day/i)).toBeInTheDocument();
   });
 
+  it("words the organiser's call for everyone reading the draw, not just them", async () => {
+    // This line sits on the draw, which the whole field can see. It said
+    // "your call" — true for one viewer and wrong for every other.
+    const round = {
+      ...(ROUTES['/rounds/round-1'] as object),
+      status: 'COMPLETE',
+      groups: [
+        {
+          id: 'group-1',
+          round_id: 'round-1',
+          group_number: 1,
+          members: [{ participant_id: 'p-kim' }, { participant_id: 'p-dave' }],
+          holes: LOOP,
+          advancing_participant_id: 'p-kim',
+          advanced_by: 'organiser',
+        },
+      ],
+    };
+    serve(koRoutes(round));
+
+    show(<TournamentPage tournamentId={T} />);
+
+    expect(await screen.findByText(/on the organiser's call/i)).toBeInTheDocument();
+    expect(screen.queryByText(/your call/i)).not.toBeInTheDocument();
+  });
+
   it('ranks the board by how far a player got, and says so', async () => {
     const board = {
       tournament_id: T,
