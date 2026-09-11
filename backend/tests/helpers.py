@@ -33,8 +33,22 @@ async def course(client: AsyncClient, headers, hole_count: int = 18) -> str:
     return course_id
 
 
-async def tournament(client: AsyncClient, headers, course_id: str | None) -> str:
-    payload: dict[str, object] = {"name": "Acme Corporate Day"}
+async def tournament(
+    client: AsyncClient,
+    headers,
+    course_id: str | None,
+    *,
+    format: str = "ROUND_ROBIN",
+    group_size: int = 3,
+    loop_style: str = "BLOCKS",
+) -> str:
+    """Defaults are today's values, so every existing caller is unchanged."""
+    payload: dict[str, object] = {
+        "name": "Acme Corporate Day",
+        "format": format,
+        "group_size": group_size,
+        "loop_style": loop_style,
+    }
     if course_id:
         payload["course_id"] = course_id
     created = await client.post("/tournaments", headers=headers, json=payload)
@@ -59,11 +73,25 @@ async def add_virtual(client: AsyncClient, headers, tournament_id: str, name: st
 
 
 async def ready_tournament(
-    client: AsyncClient, headers, player_count: int, hole_count: int = 18
+    client: AsyncClient,
+    headers,
+    player_count: int,
+    hole_count: int = 18,
+    *,
+    format: str = "ROUND_ROBIN",
+    group_size: int = 3,
+    loop_style: str = "BLOCKS",
 ) -> tuple[str, list[str]]:
     """A tournament with a course, a field, and registration closed."""
     course_id = await course(client, headers, hole_count)
-    tournament_id = await tournament(client, headers, course_id)
+    tournament_id = await tournament(
+        client,
+        headers,
+        course_id,
+        format=format,
+        group_size=group_size,
+        loop_style=loop_style,
+    )
     await set_status(client, headers, tournament_id, TournamentStatus.REGISTRATION_OPEN)
 
     participant_ids = [

@@ -159,9 +159,14 @@ sums, and the service supplies the one thing neither can know — **who belongs 
   on both points and strokes come out in input order. `list_for_tournament` orders by
   `created_at`; feeding the aggregate's mapping order instead would leave tied players
   shuffling between polls.
-- **A round's field comes from its draw**, not from the tournament's participants. Identical
-  today, but knockout progression would make a later round a subset — and the board would then
-  quietly list eliminated players.
+- **A round's field comes from its draw**, not from the tournament's participants. That is now
+  load-bearing rather than merely careful: a knockout's later rounds *are* a subset, and reading the
+  tournament's field would list eliminated players on nothing.
+- **A knockout's cumulative board ranks by `rounds_survived` first** (ADR-012), which
+  `RoundRepository.progress_for_tournament` supplies. Deliberately **not** `_round_field` in a loop:
+  that answers "who is in this round" for one round, while this is one aggregate across all of them.
+  `for_round` is untouched — everyone on a round's board reached the same round, so the key would be
+  constant there. On the wire the field is `null` for a round robin, never 0.
 
 `totals_for_tournament` / `totals_for_round` on `ScoreRepository` are the only aggregate queries
 in the codebase. `hole_scores` has no `tournament_id`, so both reach one via
@@ -173,29 +178,54 @@ and calls `len()`; ADR-009 stores points precisely so this read path stays a rea
 Two modules are deliberately pure — synchronous, no session, no I/O, plain data in and out — so
 the platform's most critical logic is testable without fixtures:
 
-- `services/scoring.py` — the ADR-007 cascade (`score_hole`) and `rank_leaderboard`.
-- `services/grouping.py` — `group_sizes` / `build_groups` / `build_loops` / `allocate_loops`.
+- `services/scoring.py` — the ADR-007 cascade (`score_hole`), `rank_leaderboard`, and the
+  ADR-012 knockout cascade (`decide_advancement`).
+- `services/grouping.py` — `group_sizes` / `build_groups` for the draw (ADR-004), and
+  `build_loops` / `build_shotgun_loops` / `plan_loops` / `allocate_loops` for the loops
+  (ADR-011).
 
 Keep them that way. Anything needing a database belongs in the calling service — for scoring
 that's `services/score_entry.py`, named to sit a clear distance from `scoring.py` rather than one
 letter away. `score_entry` decides *which* strokes may reach the engine and what happens to the
 answer; `scoring` decides who won.
 
-Two consequences worth knowing before changing them:
+Some consequences worth knowing before changing them:
 
 - **`build_groups` is deterministic and order-preserving.** That's what makes exact-grouping
   assertions possible in tests. The randomness lives in `RoundService.draw_round`, which shuffles
   the participant list before calling it for round 2 onwards (round 1 stays in registration order
   so people play with whoever they signed up alongside).
-- **`group_sizes` never returns a group of 1.** A remainder of one is folded into a **four**, so 4
-  players is one fourball and 7 is 3+4 — not 3+1, and no longer 2+2 or 3+2+2. A remainder of two is
-  still a pair. Three constants now, and the distinction matters: `TARGET_GROUP_SIZE` (3) is what
-  the arithmetic divides by, while `MAX_GROUP_SIZE` (4) only ever appears as the remainder case.
-  Dividing by `MAX_GROUP_SIZE` would turn the whole field into fourballs and quietly stop the
-  platform being about threes.
+- **`group_sizes` never returns a group of 1**, at any target. A remainder of one is absorbed into
+  the previous group, so at the default target of 3 a four-player field is one fourball and 7 is
+  3+4 — not 3+1, and no longer 2+2 or 3+2+2. A remainder of two is still a pair.
+- **`group_sizes` takes a `target`, defaulting to `TARGET_GROUP_SIZE`.** The warning this bullet
+  used to carry is still true as written: dividing the *whole platform* by `MAX_GROUP_SIZE` would
+  turn every field into fourballs and quietly stop it being about threes. What changed is that the
+  divisor is a per-event setting an organiser opts into (`tournaments.group_size`), and threes
+  remain the default everywhere it is not set — see the ADR-004 amendment for why fours had to be
+  possible at all, which is ADR-011's tee arithmetic rather than a change of heart about the format.
+  The absorb-the-remainder rule generalises: 3+1 is a legal fourball so it stands, while 4+1 is not
+  and splits into 3+2. Nothing else in the module knows which target it was given.
 - **`build_loops` chunks whatever holes it is given**, which since the draw learned `hole_numbers`
   is not always the whole course. `RoundService._select_holes` narrows and sorts them first; the
   pure function is unchanged and still assumes playing order.
+- **`decide_advancement` takes one group's cards plus that group's hole winners *in
+  `group_holes.sequence` order*.** It must not assume every hole has a winner — `score_hole` returns
+  `NO_WINNER` whenever nothing separates tied players — and the whole reason it can fall through to
+  "ask the organiser" is that a group can genuinely halve everything. Its orchestration lives in
+  `services/advancement.py`, named to sit a clear distance from `scoring.py` exactly as
+  `score_entry.py` does; `advancement.py` never imports `round.py`, which is what keeps the two free
+  of a cycle.
+- **`build_shotgun_loops` is the other cut, and is deliberately a second function.** It slides a
+  3-hole window from every hole, wrapping, so 18 holes give 18 loops rather than 6 — one starting
+  tee per group, which is what a real shotgun is (ADR-011). It makes the opposite promise to
+  `build_loops` (overlapping and exhaustive, versus disjoint with the remainder unused), so a flag
+  on one function would have given two contracts one docstring. `plan_loops` dispatches between them
+  and is the only one `round.py` imports. Both share `_reject_unplayable`, so they refuse the same
+  inputs with the same words.
+- **Playing order is the *input* to the wrap, not a limit on it.** `build_shotgun_loops` does the
+  modular arithmetic itself, which is exactly why `_select_holes` can go on sorting a selection by
+  hole number — the caller never has to express "17, 18, 1".
 
 ### Scoring: the two tables, and one deliberate import
 
@@ -324,7 +354,8 @@ Beyond "holds a valid JWT", five guards in `app/core/deps.py` carry all of it:
 
 - `require_course_owner` — courses are shared reference data, readable by anyone authenticated,
   editable only by whoever created them.
-- `require_organiser` — anything that changes a tournament, its field, or its rounds.
+- `require_organiser` — anything that changes a tournament, its field, or its rounds, including
+  adjudicating a knockout group nothing could separate (ADR-012).
 - `require_can_view` — reading a tournament: the organiser, or anyone in the field. Async, unlike
   the first two, because it has to look the caller up in the participant list.
 - `require_group_member` — entering a score: someone in that group, or the organiser. Async, for the

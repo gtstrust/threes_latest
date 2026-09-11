@@ -21,6 +21,7 @@ import {
   useAddVirtualPlayer,
   useCompleteRound,
   useCourse,
+  useAdjudicate,
   useDrawRound,
   useField,
   useJoinTournament,
@@ -34,10 +35,19 @@ import {
 import { ApiError } from '../../lib/api';
 import { useSession } from '../auth/session-context';
 import { InviteCard } from '../invite/InviteCard';
-import type { Participant, Round, Tournament, UUID } from '../../lib/types';
-import { parseHoles, readableStatus } from './format';
+import type {
+  CourseWithHoles,
+  Participant,
+  Round,
+  RoundWithGroups,
+  Tournament,
+  UUID,
+} from '../../lib/types';
+import { parseHoles, readableGroupSize, readableStatus } from './format';
+import { bracketRounds } from './knockout';
 import { readableWhen } from './when';
 import { GroupList } from '../rounds/GroupList';
+import { loopHoles, loopLabel } from '../rounds/loop';
 
 /** The field is fixed once play starts, so the editing controls disappear then. */
 const FIELD_IS_EDITABLE: Tournament['status'][] = [
@@ -66,6 +76,7 @@ export function TournamentPage({ tournamentId }: { tournamentId: UUID }) {
   const join = useJoinTournament(tournamentId);
   const draw = useDrawRound(tournamentId);
   const complete = useCompleteRound(tournamentId);
+  const adjudicate = useAdjudicate(tournamentId, current?.id);
 
   const [virtualName, setVirtualName] = useState('');
   const [holeText, setHoleText] = useState('');
@@ -101,6 +112,22 @@ export function TournamentPage({ tournamentId }: { tournamentId: UUID }) {
   const status = event.status;
   const isFull = event.max_players !== null && (field.data?.length ?? 0) >= event.max_players;
 
+  const isKnockout = event.format === 'KNOCKOUT';
+  // How many rounds the bracket takes, from the field it started with — the
+  // draw shrinks every round, so the *current* round's players would give a
+  // smaller and steadily wrong answer.
+  const bracketLength = isKnockout
+    ? bracketRounds(field.data?.length ?? 0, event.group_size === 4 ? 4 : 3).length
+    : 0;
+  const stillIn = round.data
+    ? round.data.groups.reduce((total, group) => total + group.members.length, 0)
+    : 0;
+  // The final is one group, and once it has finished somebody has won it.
+  const champion =
+    isKnockout && round.data?.groups.length === 1
+      ? round.data.groups[0].advancing_participant_id
+      : null;
+
   return (
     <Page
       title={event.name}
@@ -115,6 +142,14 @@ export function TournamentPage({ tournamentId }: { tournamentId: UUID }) {
         {[course.data?.name, readableWhen(event.scheduled_at)].filter(Boolean).join(' · ') ||
           'No course or date set yet'}
       </p>
+
+      {isKnockout && round.data && (
+        <p className="muted small meta">
+          Knockout · round {round.data.round_number}
+          {bracketLength ? ` of ${bracketLength}` : ''} · {stillIn} player
+          {stillIn === 1 ? '' : 's'} left
+        </p>
+      )}
 
       {/* --- The player's own place in it -------------------------------- */}
       {!me && status === 'REGISTRATION_OPEN' && (
@@ -136,7 +171,13 @@ export function TournamentPage({ tournamentId }: { tournamentId: UUID }) {
       )}
 
       {me && round.data && (
-        <MyGroup round={round.data} participantId={me.id} field={field.data ?? []} />
+        <MyGroup
+          round={round.data}
+          participantId={me.id}
+          field={field.data ?? []}
+          course={course.data}
+          eliminated={isKnockout}
+        />
       )}
 
       {(status === 'ROUND_IN_PROGRESS' ||
@@ -244,10 +285,21 @@ export function TournamentPage({ tournamentId }: { tournamentId: UUID }) {
 
           {(status === 'REGISTRATION_CLOSED' || status === 'ROUND_COMPLETE') && (
             <>
+              {/* How this draw will come out. It is decided on another screen,
+                  and every round of the event inherits it, so it is worth
+                  saying here rather than leaving the organiser to remember. */}
+              <p className="muted small">
+                {readableGroupSize(tournament.data.group_size)} ·{' '}
+                {tournament.data.loop_style === 'SHOTGUN' ? 'shotgun start' : 'blocks start'} ·{' '}
+                <Link to={`/t/${tournamentId}/settings`}>Change</Link>
+              </p>
+
               <label htmlFor="holes">Holes to play (optional)</label>
               {/* For a match inside a normal round — "7, 8, 9 are the comp".
-                  Omitted plays the whole course. A selection has to be a
-                  multiple of three, since a loop is three holes. */}
+                  Omitted plays the whole course. What a selection has to look
+                  like depends on the start style: a blocks draw needs a multiple
+                  of three, a shotgun needs only three, since every hole in it is
+                  a starting tee. The server owns that rule. */}
               <input
                 id="holes"
                 inputMode="numeric"
@@ -275,6 +327,12 @@ export function TournamentPage({ tournamentId }: { tournamentId: UUID }) {
             </button>
           )}
 
+          {champion && (
+            <p className="start-hole">
+              <strong>{nameOf(field.data ?? [], champion)}</strong> wins the day.
+            </p>
+          )}
+
           {status === 'ROUND_COMPLETE' && (
             <button type="button" onClick={() => setStatus.mutate('TOURNAMENT_COMPLETE')}>
               Finish the tournament
@@ -290,7 +348,20 @@ export function TournamentPage({ tournamentId }: { tournamentId: UUID }) {
             Round {round.data.round_number}
             <span className="muted small"> · {round.data.groups.length} groups</span>
           </h2>
-          <GroupList round={round.data} field={field.data ?? []} myParticipantId={me?.id} />
+          <ErrorNote error={adjudicate.error} />
+          <GroupList
+            round={round.data}
+            field={field.data ?? []}
+            myParticipantId={me?.id}
+            course={course.data}
+            showAdvancement={isKnockout && round.data.status === 'COMPLETE'}
+            onAdjudicate={
+              isOrganiser
+                ? (groupId, participantId) =>
+                    adjudicate.mutate({ groupId, participantId })
+                : undefined
+            }
+          />
         </Card>
       )}
     </Page>
@@ -329,32 +400,80 @@ function RemindField({ tournamentId }: { tournamentId: UUID }) {
   );
 }
 
+/**
+ * Where this player is meant to be, and who with.
+ *
+ * The tee leads, because a shotgun start makes it the one fact nobody can infer:
+ * every group goes off at once, so a player who assumes the 1st walks to a tee
+ * that already has somebody else on it. Stated only once the course has resolved
+ * real numbers — `loopLabel` returns null rather than guessing, since a
+ * confidently wrong hole number is worse here than no hole number at all.
+ */
 function MyGroup({
   round,
   participantId,
   field,
+  course,
+  eliminated = false,
 }: {
-  round: { groups: { id: UUID; group_number: number; members: { participant_id: UUID }[] }[] };
+  round: RoundWithGroups;
   participantId: UUID;
   field: Participant[];
+  course?: CourseWithHoles;
+  /** Whether having no group means "knocked out" rather than "something broke". */
+  eliminated?: boolean;
 }) {
   const mine = round.groups.find((group) =>
     group.members.some((member) => member.participant_id === participantId),
   );
-  if (!mine) return null;
+
+  // Being in no group is normal in a knockout and means one thing: you are out.
+  // Returning null — the only behaviour before knockout existed — would leave an
+  // eliminated player looking at a page that simply forgot about them, which is
+  // most of a 64-player field. On a round robin a missing group really would be
+  // a bug, and silence is still the honest answer there.
+  if (!mine) {
+    if (!eliminated) return null;
+    return (
+      <Card>
+        <h2>You're out</h2>
+        <p className="muted">
+          You didn't go through to round {round.round_number}. Thanks for playing — the
+          leaderboard has where you finished.
+        </p>
+      </Card>
+    );
+  }
 
   const others = mine.members
     .filter((member) => member.participant_id !== participantId)
     .map((member) => field.find((p) => p.id === member.participant_id)?.display_name)
     .filter(Boolean);
 
+  const loop = loopHoles(mine.holes, course);
+  const start = loop[0]?.known ? loop[0] : undefined;
+  const holes = loopLabel(loop);
+
   return (
     <Card className="accent">
       <h2>Your group</h2>
-      <p className="muted">Playing with {others.join(', ') || 'nobody yet'}</p>
+      {start && (
+        <p className="start-hole">
+          Start on <strong>hole {start.label}</strong>
+        </p>
+      )}
+      <p className="muted">
+        Playing with {others.join(', ') || 'nobody yet'}
+        {holes && ` · ${holes.toLowerCase()}`}
+      </p>
       <Link to={`/g/${mine.id}`} className="button-link primary">
         Enter scores
       </Link>
     </Card>
   );
+}
+
+/** A participant's name, for the few places outside GroupList that need one. */
+function nameOf(field: Participant[], id: UUID): string {
+  return field.find((participant) => participant.id === id)?.display_name ?? 'The winner';
 }

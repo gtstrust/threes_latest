@@ -8,6 +8,13 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
 
+# Imported rather than restated. `AdvancedBy` is part of `decide_advancement`'s
+# return contract, and a second copy here is how the database label drifts from
+# the vocabulary ADR-012 uses — the same reasoning that brings `DecidedBy` into
+# `models/score.py` and `LoopStyle` into `models/tournament.py`. `scoring.py`
+# imports nothing from `app.*`, which is what keeps this from being a cycle.
+from app.services.scoring import AdvancedBy
+
 
 class RoundStatus(str, Enum):
     """A round's own lifecycle, distinct from the tournament's.
@@ -58,6 +65,14 @@ class Group(Base, TimestampMixin):
     __table_args__ = (
         UniqueConstraint("round_id", "group_number", name="uq_groups_round_number"),
         CheckConstraint("group_number >= 1", name="ck_groups_number_positive"),
+        # A level with no player, or a player with no level, is a half-written
+        # verdict. ADR-009's argument for enforcing the format in the database
+        # rather than only in the service: a wrong row here is a player told they
+        # went through when they did not.
+        CheckConstraint(
+            "(advancing_participant_id IS NULL) = (advanced_by IS NULL)",
+            name="ck_groups_advancement_pairs",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -68,6 +83,28 @@ class Group(Base, TimestampMixin):
         index=True,
     )
     group_number: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    # Who goes through, on a knockout, and which level of the ADR-012 cascade
+    # named them. Both NULL on every round-robin group — forever, which is what
+    # makes it provable that nothing about a round robin changed — and both NULL
+    # on a knockout group the cascade could not settle, where the next draw
+    # refuses until the organiser says.
+    #
+    # CASCADE matches `hole_results.winner_participant_id`: participants cascade
+    # from the tournament, and a restricting FK here would block deleting one.
+    advancing_participant_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("tournament_participants.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    advanced_by: Mapped[AdvancedBy | None] = mapped_column(
+        SAEnum(
+            AdvancedBy,
+            name="advanced_by",
+            values_callable=lambda enum: [member.value for member in enum],
+        ),
+        nullable=True,
+    )
 
     round: Mapped[Round] = relationship(back_populates="groups")
     members: Mapped[list["GroupMember"]] = relationship(

@@ -14,12 +14,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.course import Hole
 from app.models.round import Group, Round, RoundStatus
-from app.models.tournament import Tournament, TournamentStatus
+from app.models.tournament import Tournament, TournamentFormat, TournamentStatus
 from app.repositories.course import CourseRepository
 from app.repositories.participant import ParticipantRepository
 from app.repositories.round import RoundRepository
 from app.repositories.tournament import TournamentRepository
-from app.services.grouping import allocate_loops, build_groups, build_loops
+from app.services.advancement import AdvancementService
+from app.services.grouping import (
+    HOLES_PER_LOOP,
+    LoopStyle,
+    allocate_loops,
+    build_groups,
+    plan_loops,
+)
 
 FIRST_ROUND = 1
 
@@ -44,14 +51,30 @@ class RoundNotInProgress(RoundError):
     """Tried to complete a round that isn't currently being played."""
 
 
+class AwaitingAdjudication(DrawNotPossible):
+    """A group of the previous knockout round has no advancing player yet.
+
+    A subclass so the router's existing handler answers 409 with no change, while
+    still being a type tests and any future routing can name.
+    """
+
+
+class KnockoutComplete(DrawNotPossible):
+    """One player is left. The bracket is over; there is nothing left to draw."""
+
+
 def _select_holes(holes: Sequence[Hole], wanted: Sequence[int]) -> list[Hole]:
     """Narrow a course's holes to the ones asked for, in playing order.
 
-    Sorted by hole number rather than kept in the order given: `build_loops`
-    documents its input as being in playing order, and a group that asked for
-    7, 8, 9 plays them in that order whatever sequence they typed. A loop that
-    wraps the turn — 17, 18, 1 — is therefore not expressible, which is a real
-    shotgun-start case but not one a 3-hole side match needs.
+    Sorted by hole number rather than kept in the order given: both loop builders
+    document their input as being in playing order, and a group that asked for
+    7, 8, 9 plays them in that order whatever sequence they typed.
+
+    That sort is not a limitation on a wrapping loop — it is the **precondition**
+    for one. A shotgun draw (ADR-011) generates 17, 18, 1 itself, by counting
+    modulo the holes in play, so what it needs from here is the selection in
+    course order. The order the organiser happened to type carries nothing the
+    draw can use.
 
     Raises:
         DrawNotPossible: If the course has no hole with one of these numbers.
@@ -67,12 +90,38 @@ def _select_holes(holes: Sequence[Hole], wanted: Sequence[int]) -> list[Hole]:
     return [by_number[number] for number in sorted(set(wanted))]
 
 
+def _check_selection(hole_count: int, style: LoopStyle) -> None:
+    """Refuse a selection this event's start style cannot cut into whole loops.
+
+    Style-dependent, so it cannot live on `RoundDraw` the way the range and
+    duplicate checks do: the style is a property of the tournament and the
+    request body cannot see it. A shotgun over holes 1-10 is ten loops and
+    perfectly valid, and a schema enforcing "a multiple of three" would 422 it.
+
+    So it sits here instead, beside the other thing only the service knows —
+    whether the course actually has those holes — and answers with the same
+    `DrawNotPossible`, i.e. a 409 rather than a 422.
+
+    Raises:
+        DrawNotPossible: If BLOCKS was asked for a selection that isn't whole loops.
+    """
+    if style is LoopStyle.SHOTGUN:
+        return
+    if hole_count % HOLES_PER_LOOP:
+        raise DrawNotPossible(
+            f"A loop is {HOLES_PER_LOOP} holes, so a blocks draw needs a multiple "
+            f"of {HOLES_PER_LOOP}; got {hole_count}. Or draw this round as a "
+            "shotgun, where every hole is a starting tee."
+        )
+
+
 class RoundService:
     def __init__(self, session: AsyncSession) -> None:
         self._rounds = RoundRepository(session)
         self._participants = ParticipantRepository(session)
         self._courses = CourseRepository(session)
         self._tournaments = TournamentRepository(session)
+        self._advancement = AdvancementService(session)
 
     async def get_by_id(self, round_id: UUID) -> Round | None:
         return await self._rounds.get_by_id(round_id)
@@ -109,6 +158,73 @@ class RoundService:
     async def list_for_tournament(self, tournament_id: UUID) -> Sequence[Round]:
         return await self._rounds.list_for_tournament(tournament_id)
 
+    async def _field_for_draw(self, tournament: Tournament, round_number: int) -> list[UUID]:
+        """Who is playing this round, in the order `build_groups` will cut.
+
+        Round one is the whole field in registration order whatever the format —
+        a knockout's first round *is* the field — and so is every later round of
+        a round robin, shuffled. Only a knockout from round two narrows, to the
+        players who won their group (ADR-012).
+
+        Shuffling the survivors rather than carrying group order forward is
+        deliberate. `build_groups` is order-preserving, so keeping the order would
+        put group 1's winner against group 2's winner every time — a fixed bracket
+        whose shape came from nothing but registration order surviving round one.
+        Nothing here seeds, so that structure would carry no meaning while looking
+        like it did.
+
+        Raises:
+            AwaitingAdjudication: If a group of the previous round never said who
+                went through.
+            KnockoutComplete: If one player is left — there is no round to draw.
+        """
+        if tournament.format is not TournamentFormat.KNOCKOUT or round_number == FIRST_ROUND:
+            participants = await self._participants.list_for_tournament(tournament.id)
+            # Registration order for round 1; shuffled thereafter.
+            # list_for_tournament already sorts by created_at, so round 1 needs
+            # no work at all.
+            participant_ids = [participant.id for participant in participants]
+            if round_number != FIRST_ROUND:
+                random.shuffle(participant_ids)
+            return participant_ids
+
+        previous = await self._rounds.latest_for_tournament(tournament.id)
+        if previous is None:  # pragma: no cover — DRAWABLE_FROM means one has finished
+            raise DrawNotPossible("There is no previous round to take the winners from.")
+
+        field = await self._advancement.field_for_next_round(previous)
+        if field.undecided:
+            groups = ", ".join(str(number) for number in field.undecided)
+            raise AwaitingAdjudication(
+                f"Round {previous.round_number} "
+                f"group{'s' if len(field.undecided) > 1 else ''} {groups} had nothing to "
+                "separate the players — level on points and strokes, and no hole won "
+                "later. Say who goes through with POST /groups/{group_id}/advancement, "
+                "then draw again."
+            )
+        if len(field.advancing) == 1:
+            raise KnockoutComplete(await self._champion_message(field.advancing[0]))
+
+        survivors = list(field.advancing)
+        random.shuffle(survivors)
+        return survivors
+
+    async def _champion_message(self, participant_id: UUID) -> str:
+        """The refusal that ends a bracket, naming the winner.
+
+        Worth one extra read on the single request per event that reaches it:
+        without it the draw falls through to `group_sizes(1)` and answers
+        "Cannot form a group from a single player", which is technically correct
+        and completely unreadable as "you have a champion".
+        """
+        champion = await self._participants.get_by_id(participant_id)
+        name = champion.display_name if champion else "One player"
+        return (
+            f"{name} has won — everyone else is out, so there is no round left to draw. "
+            'Finish the event with POST /tournaments/{id}/status {"status": '
+            '"TOURNAMENT_COMPLETE"}.'
+        )
+
     async def draw_round(
         self, tournament: Tournament, hole_numbers: Sequence[int] | None = None
     ) -> Round:
@@ -122,6 +238,12 @@ class RoundService:
         record; which holes were actually played is recorded per group in
         `group_holes`, so nothing has to invent a duplicate course to say "we
         played the back three". Omitted means the whole course, as before.
+
+        The **shape** of the draw — how many to a group, and how the holes become
+        loops — comes off the tournament row rather than this call, so every round
+        of an event is drawn the same way without the organiser restating it. A
+        shotgun (ADR-011) makes every hole in play a starting tee, so sixteen
+        fourballs take tees 1-16 and the whole field tees off at once.
 
         Raises:
             RoundNotDrawable: If the tournament isn't ready for a new round.
@@ -142,19 +264,14 @@ class RoundService:
         holes = await self._courses.list_holes(tournament.course_id)
         if hole_numbers is not None:
             holes = _select_holes(holes, hole_numbers)
-        participants = await self._participants.list_for_tournament(tournament.id)
+            _check_selection(len(holes), tournament.loop_style)
 
         round_number = await self._rounds.next_round_number(tournament.id)
-
-        # Registration order for round 1; shuffled thereafter. list_for_tournament
-        # already sorts by created_at, so round 1 needs no work at all.
-        participant_ids = [participant.id for participant in participants]
-        if round_number != FIRST_ROUND:
-            random.shuffle(participant_ids)
+        participant_ids = await self._field_for_draw(tournament, round_number)
 
         try:
-            groups = build_groups(participant_ids)
-            loops = build_loops([hole.id for hole in holes])
+            groups = build_groups(participant_ids, target=tournament.group_size)
+            loops = plan_loops([hole.id for hole in holes], style=tournament.loop_style)
         except ValueError as exc:
             raise DrawNotPossible(str(exc)) from exc
 
@@ -180,6 +297,15 @@ class RoundService:
             raise RoundNotInProgress(
                 f"Round {round_.round_number} is {round_.status.value}, not in progress."
             )
+
+        # Decide before closing, not lazily at the next draw: this is the moment
+        # the round's scores stop changing, so the verdict records what the field
+        # was told rather than what the code thinks later (ADR-012). A no-op on a
+        # round robin. A group nothing could separate is left undecided on
+        # purpose — the organiser has to be able to close the round while the
+        # field walks in, and the refusal belongs at the next draw, where it
+        # actually blocks something.
+        await self._advancement.decide_round(tournament, round_)
 
         completed = await self._rounds.set_status(round_, RoundStatus.COMPLETE)
         await self._tournaments.set_status(tournament, TournamentStatus.ROUND_COMPLETE)

@@ -20,8 +20,12 @@ import type {
   CourseRecord,
   PlayerStats,
   Referrals,
+  Group,
   GroupCard,
+  GroupSize,
   HoleResult,
+  TournamentFormat,
+  LoopStyle,
   Leaderboard,
   Participant,
   Player,
@@ -130,6 +134,34 @@ export function useCourse(id: UUID | null | undefined) {
   });
 }
 
+/**
+ * The course an event is played at, whichever kind of event it is.
+ *
+ * A fun round is a `tournaments` row underneath (one discriminator column), so
+ * the id alone does not say where to ask: the tournament routes answer **404**
+ * for a fun round on purpose (`reject_fun_round`), and it is readable only
+ * through `/fun-rounds`. The screens that serve both — score entry and the
+ * scorecard — need the course for the real hole numbers, and asking the wrong
+ * endpoint costs a failed request and a silently wrong label.
+ *
+ * @param eventId - The tournament or fun round id. Both are `tournaments.id`.
+ * @param kind - Which endpoint holds it.
+ */
+export function useEventCourse(eventId: UUID | undefined, kind: 'tournament' | 'fun_round') {
+  const tournament = useQuery({
+    queryKey: keys.tournament(eventId ?? 'none'),
+    queryFn: () => api.get<Tournament>(`/tournaments/${eventId}`),
+    enabled: kind === 'tournament' && Boolean(eventId),
+  });
+  const funRound = useQuery({
+    queryKey: keys.funRound(eventId ?? 'none'),
+    queryFn: () => api.get<FunRoundDetail>(`/fun-rounds/${eventId}`),
+    enabled: kind === 'fun_round' && Boolean(eventId),
+  });
+
+  return useCourse((kind === 'fun_round' ? funRound.data : tournament.data)?.course_id);
+}
+
 export function useGroupCard(groupId: UUID) {
   return useQuery({
     queryKey: keys.card(groupId),
@@ -146,6 +178,13 @@ export function useCreateTournament() {
       name: string;
       course_id?: UUID;
       max_players?: number;
+      group_size?: GroupSize;
+      loop_style?: LoopStyle;
+      // Create-only, deliberately: after round one a knockout has stored
+      // verdicts and a round robin has none, so switching would either
+      // invalidate records of what the field was told or invent ones that were
+      // never announced. There is no PATCH for it.
+      format?: TournamentFormat;
       scheduled_at?: string;
     }) => api.post<Tournament>('/tournaments', body),
     onSuccess: () => void client.invalidateQueries({ queryKey: keys.organising }),
@@ -165,6 +204,10 @@ export function useUpdateTournament(id: UUID) {
       course_id?: UUID | null;
       scheduled_at?: string | null;
       max_players?: number | null;
+      // Not nullable, unlike the three above: there is no event without a group
+      // size or a start style, and the API answers 422 rather than clearing them.
+      group_size?: GroupSize;
+      loop_style?: LoopStyle;
     }) => api.patch<Tournament>(`/tournaments/${id}`, body),
     onSuccess: () => void client.invalidateQueries({ queryKey: keys.tournament(id) }),
   });
@@ -215,14 +258,30 @@ export function useRemoveParticipant(id: UUID) {
 export function useDrawRound(id: UUID) {
   const client = useQueryClient();
   return useMutation({
-    // `hole_numbers` omitted means the whole course; a selection has to be a
-    // multiple of three, since a loop is three holes.
+    // `hole_numbers` omitted means the whole course. What a selection has to
+    // look like depends on the event's `loop_style` (ADR-011): a blocks draw
+    // needs a multiple of three, because it cuts disjoint 3-hole loops, while a
+    // shotgun needs only three, because every hole in it is a starting tee. The
+    // server owns that rule — it is the only side that can see the style.
     mutationFn: (holeNumbers?: number[]) =>
       api.post<RoundWithGroups>(
         `/tournaments/${id}/rounds`,
         holeNumbers?.length ? { hole_numbers: holeNumbers } : {},
       ),
     onSuccess: () => void client.invalidateQueries({ queryKey: ['tournament', id] }),
+  });
+}
+
+/** Send a player through from a group nothing could separate (ADR-012). */
+export function useAdjudicate(tournamentId: UUID, roundId: UUID | undefined) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ groupId, participantId }: { groupId: UUID; participantId: UUID }) =>
+      api.post<Group>(`/groups/${groupId}/advancement`, { participant_id: participantId }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['tournament', tournamentId] });
+      if (roundId) void client.invalidateQueries({ queryKey: keys.round(roundId) });
+    },
   });
 }
 

@@ -229,8 +229,14 @@ async def test_a_tournament_can_be_created_before_a_venue_is_booked(client, make
 
 
 @pytest.mark.asyncio
-async def test_knockout_is_rejected_until_it_is_implemented(client, make_token):
-    """Accepting it would fail silently — the event would just run as a round robin."""
+async def test_a_knockout_can_be_created(client, make_token):
+    """This used to 422 — accepting it would have run the event as a round robin.
+
+    ADR-012 put advancement behind the value, so the gate opened. The gate itself
+    (`SUPPORTED_FORMATS` and `_reject_unimplemented_format`) deliberately stays:
+    it is how a future format sits in the column, storable and readable, before
+    anything implements it.
+    """
     headers = await _organiser(client, make_token)
 
     response = await client.post(
@@ -239,10 +245,20 @@ async def test_knockout_is_rejected_until_it_is_implemented(client, make_token):
         json={"name": "Knockout Cup", "format": TournamentFormat.KNOCKOUT.value},
     )
 
+    assert response.status_code == 201, response.text
+    assert response.json()["format"] == TournamentFormat.KNOCKOUT.value
+
+
+@pytest.mark.asyncio
+async def test_a_format_the_platform_cannot_run_is_still_refused(client, make_token):
+    """The gate is open, not removed. An unknown format is a 422, not a 500."""
+    headers = await _organiser(client, make_token)
+
+    response = await client.post(
+        "/tournaments", headers=headers, json={"name": "Cup", "format": "SCRAMBLE"}
+    )
+
     assert response.status_code == 422
-    # The message must say it isn't built yet, not merely that it's invalid.
-    assert "not implemented" in response.text
-    assert TournamentFormat.ROUND_ROBIN.value in response.text
 
 
 @pytest.mark.asyncio
@@ -263,6 +279,104 @@ async def test_format_defaults_to_round_robin_when_omitted(client, make_token):
     tournament = await _create_tournament(client, headers)
 
     assert tournament["format"] == TournamentFormat.ROUND_ROBIN.value
+
+
+# --- How the draw is shaped (ADR-004 amended, ADR-011) ----------------------
+
+
+@pytest.mark.asyncio
+async def test_an_event_is_threes_in_blocks_unless_it_says_otherwise(client, make_token):
+    """The defaults are the platform's format, not an empty value."""
+    headers = await _organiser(client, make_token)
+
+    tournament = await _create_tournament(client, headers)
+
+    assert tournament["group_size"] == 3
+    assert tournament["loop_style"] == "BLOCKS"
+
+
+@pytest.mark.asyncio
+async def test_an_organiser_can_create_a_fourball_shotgun(client, make_token):
+    headers = await _organiser(client, make_token)
+
+    tournament = await _create_tournament(client, headers, group_size=4, loop_style="SHOTGUN")
+
+    assert tournament["group_size"] == 4
+    assert tournament["loop_style"] == "SHOTGUN"
+
+    fetched = await client.get(f"/tournaments/{tournament['id']}", headers=headers)
+    assert fetched.json()["group_size"] == 4
+    assert fetched.json()["loop_style"] == "SHOTGUN"
+
+
+@pytest.mark.asyncio
+async def test_the_draw_settings_can_be_changed_after_creation(client, make_token):
+    """Decided when the marshals are booked, which is not always at setup."""
+    headers = await _organiser(client, make_token)
+    tournament = await _create_tournament(client, headers)
+
+    updated = await client.patch(
+        f"/tournaments/{tournament['id']}",
+        headers=headers,
+        json={"group_size": 4, "loop_style": "SHOTGUN"},
+    )
+
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["group_size"] == 4
+    assert updated.json()["loop_style"] == "SHOTGUN"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("group_size", (0, 1, 2, 5, 18))
+async def test_a_group_size_the_format_cannot_hold_is_rejected(client, make_token, group_size):
+    """Two is a group a remainder can produce, never a target to divide by."""
+    headers = await _organiser(client, make_token)
+
+    refused = await client.post(
+        "/tournaments",
+        headers=headers,
+        json={"name": "Acme Corporate Day", "group_size": group_size},
+    )
+
+    assert refused.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_start_style_is_rejected(client, make_token):
+    headers = await _organiser(client, make_token)
+
+    refused = await client.post(
+        "/tournaments",
+        headers=headers,
+        json={"name": "Acme Corporate Day", "loop_style": "WAVES"},
+    )
+
+    assert refused.status_code == 422
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field", ("group_size", "loop_style"))
+async def test_a_draw_setting_cannot_be_cleared(client, make_token, field):
+    """422, not the 500 an integrity error on a NOT NULL column would give.
+
+    Unlike `max_players` and `course_id`, these have no empty value — an event
+    with no group size describes nothing. Omitting the field is how you leave it
+    alone; an explicit null is a malformed request.
+    """
+    headers = await _organiser(client, make_token)
+    tournament = await _create_tournament(client, headers, group_size=4, loop_style="SHOTGUN")
+
+    refused = await client.patch(
+        f"/tournaments/{tournament['id']}", headers=headers, json={field: None}
+    )
+
+    assert refused.status_code == 422
+    assert "cannot be cleared" in refused.text
+
+    # And the stored value is untouched.
+    fetched = await client.get(f"/tournaments/{tournament['id']}", headers=headers)
+    assert fetched.json()["group_size"] == 4
+    assert fetched.json()["loop_style"] == "SHOTGUN"
 
 
 # --- Finding the tournaments you play in ------------------------------------

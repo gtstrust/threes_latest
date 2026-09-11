@@ -10,9 +10,12 @@ import uuid
 import pytest
 
 from app.services.scoring import (
+    AdvancedBy,
     DecidedBy,
+    GroupStanding,
     LeaderboardRow,
     ParticipantTotals,
+    decide_advancement,
     rank_leaderboard,
     score_hole,
 )
@@ -243,3 +246,116 @@ def test_leaderboard_row_carries_the_totals_through() -> None:
     (row,) = rank_leaderboard([ParticipantTotals(A, points=2, total_strokes=13)])
 
     assert row == LeaderboardRow(position=1, participant_id=A, points=2, total_strokes=13)
+
+
+# --- Knockout advancement (ADR-012) -----------------------------------------
+
+
+def _card(participant, points, strokes):
+    return GroupStanding(participant_id=participant, points=points, total_strokes=strokes)
+
+
+def test_most_points_goes_through() -> None:
+    result = decide_advancement([_card(A, 2, 12), _card(B, 1, 11), _card(C, 0, 10)])
+
+    assert result.winner == A
+    assert result.decided_by is AdvancedBy.POINTS
+    assert result.tied == ()
+
+
+def test_level_on_points_is_split_by_fewest_strokes() -> None:
+    """The same tie-break the leaderboard uses (ADR-007), applied to one group."""
+    result = decide_advancement([_card(A, 1, 13), _card(B, 1, 11)])
+
+    assert result.winner == B
+    assert result.decided_by is AdvancedBy.STROKES
+
+
+def test_level_on_both_is_split_by_the_latest_hole_won() -> None:
+    """Countback. A won the first hole, B the last, so B goes through."""
+    result = decide_advancement([_card(A, 1, 12), _card(B, 1, 12)], [A, None, B])
+
+    assert result.winner == B
+    assert result.decided_by is AdvancedBy.COUNTBACK
+
+
+def test_countback_skips_a_hole_nobody_won() -> None:
+    """A halved hole is not an answer, so the question moves back a hole."""
+    result = decide_advancement([_card(A, 1, 12), _card(B, 1, 12)], [B, A, None])
+
+    assert result.winner == A
+    assert result.decided_by is AdvancedBy.COUNTBACK
+
+
+def test_countback_ignores_a_hole_won_by_someone_already_out() -> None:
+    """Which of *these two* took a hole later — a third player's hole answers nothing.
+
+    C won the last hole but lost the group on strokes, so the question is still
+    between A and B and is settled by the hole before it.
+    """
+    result = decide_advancement([_card(A, 1, 12), _card(B, 1, 12), _card(C, 1, 14)], [A, B, C])
+
+    assert result.winner == B
+    assert result.decided_by is AdvancedBy.COUNTBACK
+
+
+def test_an_all_square_group_goes_through_to_nobody() -> None:
+    """The only case the organiser is ever asked about.
+
+    Points come only from winning holes, so co-leaders on zero mean every hole
+    was halved. There is nothing left in the data to ask.
+    """
+    result = decide_advancement(
+        [_card(A, 0, 12), _card(B, 0, 12), _card(C, 0, 12)], [None, None, None]
+    )
+
+    assert result.winner is None
+    assert result.decided_by is None
+    assert set(result.tied) == {A, B, C}
+
+
+def test_the_tied_players_keep_input_order() -> None:
+    """The organiser picks from this list; it must not reshuffle between requests."""
+    result = decide_advancement([_card(C, 0, 12), _card(A, 0, 12), _card(B, 0, 12)])
+
+    assert result.tied == (C, A, B)
+
+
+def test_a_group_with_no_holes_played_yet_separates_nobody() -> None:
+    """Completing a round early is allowed; it just leaves the group undecided."""
+    result = decide_advancement([_card(A, 0, 0), _card(B, 0, 0)])
+
+    assert result.winner is None
+    assert result.tied == (A, B)
+
+
+def test_the_organiser_is_never_a_verdict_this_function_reaches() -> None:
+    """AdvancedBy.ORGANISER is storage vocabulary for an answer from elsewhere."""
+    for winners in ([A, B, None], [None, None, None], [A, A, A]):
+        assert decide_advancement([_card(A, 1, 12), _card(B, 1, 12)], winners).decided_by is not (
+            AdvancedBy.ORGANISER
+        )
+
+
+def test_a_group_with_no_players_is_rejected() -> None:
+    with pytest.raises(ValueError, match="no players"):
+        decide_advancement([])
+
+
+def test_a_duplicated_player_is_rejected() -> None:
+    with pytest.raises(ValueError, match="duplicate"):
+        decide_advancement([_card(A, 1, 12), _card(A, 0, 13)])
+
+
+def test_rounds_survived_leads_the_ranking_only_when_it_is_set() -> None:
+    """A knockout champion outranks a finalist who scored more (ADR-012)."""
+    champion = ParticipantTotals(A, points=2, total_strokes=30, rounds_survived=4)
+    finalist = ParticipantTotals(B, points=5, total_strokes=28, rounds_survived=3)
+
+    assert [row.participant_id for row in rank_leaderboard([finalist, champion])] == [A, B]
+
+    # ...and with the field left at its default, the ordering is the old one.
+    assert [
+        row.participant_id
+        for row in rank_leaderboard([ParticipantTotals(A, 2, 30), ParticipantTotals(B, 5, 28)])
+    ] == [B, A]

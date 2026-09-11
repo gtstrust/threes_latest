@@ -1,7 +1,8 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.tournament import (
     SUPPORTED_FORMATS,
@@ -9,12 +10,19 @@ from app.models.tournament import (
     TournamentFormat,
     TournamentStatus,
 )
-from app.services.grouping import MIN_GROUP_SIZE
+from app.services.grouping import MIN_GROUP_SIZE, TARGET_GROUP_SIZE, LoopStyle
 
 
 # A cap below this describes an event nobody could play: the draw refuses to make
 # a group of one (ADR-004), so a one-player field can never tee off.
 MIN_MAX_PLAYERS = MIN_GROUP_SIZE
+
+# The two targets an organiser may actually pick. `group_sizes` accepts anything
+# from 2 to 4, because the arithmetic is well defined there; which of those the
+# product *offers* is an edge decision and belongs here rather than in the pure
+# core. A Literal rather than ge/le so both the OpenAPI schema and the 422 name
+# the two real answers instead of describing a range.
+GroupSize = Literal[3, 4]
 
 
 class TournamentCreate(BaseModel):
@@ -27,6 +35,17 @@ class TournamentCreate(BaseModel):
     format: TournamentFormat = Field(
         default=TournamentFormat.ROUND_ROBIN,
         description="Only ROUND_ROBIN is accepted; KNOCKOUT is not implemented yet.",
+    )
+    group_size: GroupSize = Field(
+        default=TARGET_GROUP_SIZE,
+        description="Players per group: 3, the format, or 4 for fourballs (ADR-004).",
+    )
+    loop_style: LoopStyle = Field(
+        default=LoopStyle.BLOCKS,
+        description=(
+            "BLOCKS cuts the holes into disjoint 3-hole loops; SHOTGUN makes every "
+            "hole a starting tee, so the whole field tees off at once (ADR-011)."
+        ),
     )
     course_id: UUID | None = None
     scheduled_at: datetime | None = None
@@ -55,8 +74,34 @@ class TournamentUpdate(BaseModel):
     # An explicit null removes the cap, which `exclude_unset` in the repository
     # keeps distinguishable from not mentioning it at all.
     max_players: int | None = Field(default=None, ge=MIN_MAX_PLAYERS)
+    # Unlike `max_players`, None here means "not mentioned" and never "clear it":
+    # there is no such thing as an event with no group size or no start style.
+    group_size: GroupSize | None = None
+    loop_style: LoopStyle | None = None
     course_id: UUID | None = None
     scheduled_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def _reject_cleared_draw_settings(self) -> "TournamentUpdate":
+        """Refuse an explicit null for the two settings that have no empty value.
+
+        `course_id` and `max_players` are genuinely clearable, so the repository
+        writes whatever `exclude_unset` lets through. These two are not: the
+        columns are NOT NULL, and an event with no group size or no start style
+        describes nothing. Without this the null reaches `setattr` and surfaces
+        as an integrity error — a 500 for what is a malformed request.
+        """
+        cleared = [
+            field
+            for field in ("group_size", "loop_style")
+            if field in self.model_fields_set and getattr(self, field) is None
+        ]
+        if cleared:
+            raise ValueError(
+                f"{', '.join(cleared)} cannot be cleared — every event has a group "
+                "size and a start style. Omit the field to leave it unchanged."
+            )
+        return self
 
 
 class TournamentStatusUpdate(BaseModel):
@@ -75,6 +120,8 @@ class TournamentRead(BaseModel):
     format: TournamentFormat
     course_id: UUID | None
     max_players: int | None
+    group_size: int
+    loop_style: LoopStyle
     scheduled_at: datetime | None
     created_at: datetime
     updated_at: datetime

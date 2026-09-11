@@ -58,6 +58,23 @@ export type CourseWithHoles = Course & { holes: Hole[] };
  */
 export type CourseSummary = Course & { hole_count: number };
 
+/** The two targets an organiser may pick; the draw absorbs remainders itself. */
+export type GroupSize = 3 | 4;
+
+export type LoopStyle = 'BLOCKS' | 'SHOTGUN';
+
+/**
+ * How a tournament's rounds relate to each other (ADR-012).
+ *
+ * ROUND_ROBIN redraws the whole field every round and the leaderboard adds up.
+ * KNOCKOUT makes each group a match: one player goes through and the rest are
+ * out, so the field shrinks every round.
+ */
+export type TournamentFormat = 'ROUND_ROBIN' | 'KNOCKOUT';
+
+/** Which level of the knockout cascade sent a player through (ADR-012). */
+export type AdvancedBy = 'points' | 'strokes' | 'countback' | 'organiser';
+
 export type Tournament = {
   id: UUID;
   name: string;
@@ -67,7 +84,15 @@ export type Tournament = {
   /** Optional ceiling on the field. Null means no cap; it only binds self-registration. */
   max_players: number | null;
   status: TournamentStatus;
-  format: 'ROUND_ROBIN';
+  format: TournamentFormat;
+  /** Players per group the draw aims for: 3, the format, or 4 for fourballs (ADR-004). */
+  group_size: number;
+  /**
+   * How the holes in play become loops (ADR-011). BLOCKS cuts disjoint triples,
+   * so 18 holes make 6 loops; SHOTGUN makes every hole a starting tee, so they
+   * make 18 and the whole field tees off at once.
+   */
+  loop_style: LoopStyle;
   course_id: UUID | null;
   /**
    * When it's played, as an instant. Null means no date — and an event with no
@@ -141,6 +166,11 @@ export type Group = {
   group_number: number;
   members: GroupMember[];
   holes: GroupHole[];
+  /** Who goes through, on a knockout. Null on a round robin, and null on a
+   *  knockout group nothing could separate — which is what the organiser
+   *  resolves (ADR-012). */
+  advancing_participant_id: UUID | null;
+  advanced_by: AdvancedBy | null;
 };
 
 export type Round = {
@@ -189,6 +219,10 @@ export type LeaderboardEntry = {
   total_strokes: number;
   /** Holes actually scored, not the three in the loop — a group still out shows as such. */
   holes_played: number;
+  /** Rounds survived, on a **knockout** — the last round drawn into, plus one if
+   *  they won it, so the champion leads (ADR-012). Null on a round robin, where
+   *  nobody is knocked out and the figure would mean nothing. */
+  rounds_survived: number | null;
 };
 
 export type Leaderboard = {

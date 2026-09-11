@@ -13,7 +13,8 @@ import { useState, type FormEvent } from 'react';
 import { Card, ErrorNote, Loading, Page } from '../../components/ui';
 import { useCourse, useCourses, useTournament, useUpdateTournament } from '../../lib/queries';
 import { useSession } from '../auth/session-context';
-import type { UUID } from '../../lib/types';
+import type { GroupSize, LoopStyle, TournamentFormat, UUID } from '../../lib/types';
+import { describeStart } from './format';
 import { toInstant, toLocalInput } from './when';
 
 export function TournamentSettingsPage({ tournamentId }: { tournamentId: UUID }) {
@@ -47,6 +48,9 @@ export function TournamentSettingsPage({ tournamentId }: { tournamentId: UUID })
         courseId={tournament.data.course_id}
         scheduledAt={tournament.data.scheduled_at}
         maxPlayers={tournament.data.max_players}
+        format={tournament.data.format}
+        groupSize={tournament.data.group_size}
+        loopStyle={tournament.data.loop_style}
         courses={courses.data ?? []}
       />
     </Page>
@@ -59,6 +63,9 @@ function SettingsForm({
   courseId: initialCourse,
   scheduledAt,
   maxPlayers,
+  format,
+  groupSize: initialGroupSize,
+  loopStyle: initialLoopStyle,
   courses,
 }: {
   tournamentId: UUID;
@@ -66,6 +73,9 @@ function SettingsForm({
   courseId: UUID | null;
   scheduledAt: string | null;
   maxPlayers: number | null;
+  format: TournamentFormat;
+  groupSize: number;
+  loopStyle: LoopStyle;
   courses: { id: UUID; name: string; hole_count: number }[];
 }) {
   const update = useUpdateTournament(tournamentId);
@@ -74,9 +84,12 @@ function SettingsForm({
   const [courseId, setCourseId] = useState(initialCourse ?? '');
   const [when, setWhen] = useState(toLocalInput(scheduledAt));
   const [cap, setCap] = useState(maxPlayers === null ? '' : String(maxPlayers));
+  const [groupSize, setGroupSize] = useState<GroupSize>(initialGroupSize === 4 ? 4 : 3);
+  const [loopStyle, setLoopStyle] = useState<LoopStyle>(initialLoopStyle);
 
   const course = useCourse(courseId || null);
   const holes = course.data?.holes.length ?? 0;
+  const start = describeStart(holes, groupSize, loopStyle);
 
   function onSubmit(event: FormEvent) {
     event.preventDefault();
@@ -87,6 +100,10 @@ function SettingsForm({
       course_id: courseId || null,
       scheduled_at: toInstant(when),
       max_players: cap === '' ? null : Number(cap),
+      // Never null: the API refuses to clear either, because an event with no
+      // group size or no start style describes nothing.
+      group_size: groupSize,
+      loop_style: loopStyle,
     });
   }
 
@@ -135,6 +152,36 @@ function SettingsForm({
         <p className="muted small">
           Only players joining themselves are stopped — you can always add someone yourself.
         </p>
+
+        {/* Shown, not editable. After round one a knockout has stored verdicts
+            and a round robin has none, so a switch would either invalidate
+            records of what the field was told or invent ones that were never
+            announced (ADR-012). */}
+        <p className="muted small">
+          Format: <strong>{format === 'KNOCKOUT' ? 'Knockout' : 'Round robin'}</strong> — fixed
+          when the event was created.
+        </p>
+
+        <label htmlFor="group-size">Group size</label>
+        <select
+          id="group-size"
+          value={groupSize}
+          onChange={(e) => setGroupSize(Number(e.target.value) === 4 ? 4 : 3)}
+        >
+          <option value={3}>Threes — the format</option>
+          <option value={4}>Fourballs</option>
+        </select>
+
+        <label htmlFor="start">Start</label>
+        <select
+          id="start"
+          value={loopStyle}
+          onChange={(e) => setLoopStyle(e.target.value as LoopStyle)}
+        >
+          <option value="BLOCKS">Blocks — the course cut into 3-hole loops</option>
+          <option value="SHOTGUN">Shotgun — every hole is a starting tee</option>
+        </select>
+        {start && <p className="muted small">{start}</p>}
 
         <button type="submit" disabled={update.isPending || !name}>
           {update.isPending ? 'Saving…' : 'Save changes'}

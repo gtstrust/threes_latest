@@ -15,11 +15,12 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Card, ErrorNote, Loading, Page } from '../../components/ui';
-import { useGroupCard, useRound, useSubmitHole } from '../../lib/queries';
+import { useEventCourse, useGroupCard, useRound, useSubmitHole } from '../../lib/queries';
 import { api } from '../../lib/api';
 import { useQuery } from '@tanstack/react-query';
 import type { Group, HoleResult, Participant, Round, UUID } from '../../lib/types';
 import { NOTHING_ASKED, nextPrompt, strokesFrom, type Asked } from './cascade';
+import { loopHoles } from '../rounds/loop';
 
 /**
  * Where the whole card lives for this group.
@@ -41,6 +42,14 @@ const DEFAULT_STROKES = 4;
  * screen serves both.
  */
 type BackTo = { to: string; label: string };
+
+/**
+ * Which endpoint holds this event. A fun round nests its scoring under `/r/:id`,
+ * and `/tournaments/{id}` answers 404 for one — the same signal `cardPath` reads.
+ */
+function kindOf(backTo?: BackTo): 'tournament' | 'fun_round' {
+  return backTo?.to.startsWith('/r/') ? 'fun_round' : 'tournament';
+}
 
 export function ScorePage({ groupId, backTo }: { groupId: UUID; backTo?: BackTo }) {
   const group = useQuery({
@@ -88,14 +97,16 @@ function ScoreCard({
     queryFn: () => api.get<Participant[]>(`/tournaments/${tournamentId}/participants`),
   });
 
-  const loop = useMemo(
-    () => [...group.holes].sort((a, b) => a.sequence - b.sequence),
-    [group.holes],
-  );
+  // The real hole numbers. A group playing 7-9 stands on the 7th tee, and
+  // labelling that "1" names a different hole — one with another group on it,
+  // since the draw is a shotgun start. Falls back to the position in the loop
+  // while the course is in flight, so a slow request cannot stop anyone scoring.
+  const course = useEventCourse(tournamentId, kindOf(backTo));
+  const loop = useMemo(() => loopHoles(group.holes, course.data), [group.holes, course.data]);
 
   const scoredIds = new Set(played.map((hole) => hole.hole_id));
-  const firstUnplayed = loop.find((hole) => !scoredIds.has(hole.hole_id)) ?? loop[0];
-  const [holeId, setHoleId] = useState<UUID>(firstUnplayed?.hole_id ?? '');
+  const firstUnplayed = loop.find((hole) => !scoredIds.has(hole.holeId)) ?? loop[0];
+  const [holeId, setHoleId] = useState<UUID>(firstUnplayed?.holeId ?? '');
 
   const existing = played.find((hole) => hole.hole_id === holeId);
   const nameOf = (id: UUID) => field.data?.find((p) => p.id === id)?.display_name ?? 'Player';
@@ -115,19 +126,24 @@ function ScoreCard({
         chips, still plainly pressable.
       */}
       <nav className="holes" aria-label="Holes in this loop">
-        {loop.map((hole, index) => {
-          const scored = scoredIds.has(hole.hole_id);
-          const current = hole.hole_id === holeId;
+        {loop.map((hole) => {
+          const scored = scoredIds.has(hole.holeId);
+          const current = hole.holeId === holeId;
+          const state = current ? 'now' : scored ? 'done' : 'to play';
           return (
             <button
-              key={hole.hole_id}
+              key={hole.holeId}
               type="button"
               className={`hole${current ? ' current' : ''}${scored ? ' scored' : ''}`}
               aria-current={current}
-              onClick={() => setHoleId(hole.hole_id)}
+              // Names the hole *and* keeps the state audible. A label naming only
+              // the number would replace the chip's text outright, which is how
+              // "done" stopped being announced the first time this was written.
+              aria-label={`${hole.known ? 'Hole' : 'Loop hole'} ${hole.label} — ${state}`}
+              onClick={() => setHoleId(hole.holeId)}
             >
-              <span className="hole-number">{index + 1}</span>
-              <span className="hole-state">{current ? 'now' : scored ? 'done' : 'to play'}</span>
+              <span className="hole-number">{hole.label}</span>
+              <span className="hole-state">{state}</span>
             </button>
           );
         })}

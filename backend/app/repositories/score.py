@@ -196,6 +196,58 @@ class ScoreRepository:
             .where(Group.round_id == round_id)
         )
 
+    async def totals_by_group_for_round(
+        self, round_id: UUID
+    ) -> dict[UUID, dict[UUID, ScoreTotals]]:
+        """The same totals again, but kept apart per group — `{group: {player: totals}}`.
+
+        A second grouping rather than a reuse of `_totals_query()`, which groups
+        by participant alone. A knockout is decided *within* a group (ADR-012),
+        so the group id has to be in the GROUP BY: filtering for it afterwards
+        would mean one query per group, which is sixteen of them in a 64-player
+        round one.
+
+        Summing `list_scores_for_group` in Python was the alternative, and is
+        rejected for the reason already given about `count_for_tournament` —
+        ADR-009 stores points precisely so this read path stays a real SQL
+        aggregate.
+        """
+        query = (
+            select(
+                HoleScore.group_id,
+                HoleScore.participant_id,
+                func.sum(HoleScore.points),
+                func.sum(HoleScore.strokes),
+                func.count(HoleScore.id),
+            )
+            .join(Group, Group.id == HoleScore.group_id)
+            .where(Group.round_id == round_id)
+            .group_by(HoleScore.group_id, HoleScore.participant_id)
+        )
+        result = await self._session.execute(query)
+
+        by_group: dict[UUID, dict[UUID, ScoreTotals]] = {}
+        # SUM() comes back as Decimal; coerce here, as `_totals` does.
+        for group_id, participant_id, points, strokes, holes in result.all():
+            by_group.setdefault(group_id, {})[participant_id] = ScoreTotals(
+                points=int(points), strokes=int(strokes), holes_played=int(holes)
+            )
+        return by_group
+
+    async def list_results_for_round(self, round_id: UUID) -> Sequence[HoleResult]:
+        """Every decided hole in a round, in one query rather than one per group.
+
+        Not an aggregate, and deliberately so: countback needs *which* hole each
+        winner took, which is a sequence rather than a sum. The caller buckets
+        these by group and orders them by `group_holes.sequence`.
+        """
+        result = await self._session.execute(
+            select(HoleResult)
+            .join(Group, Group.id == HoleResult.group_id)
+            .where(Group.round_id == round_id)
+        )
+        return result.scalars().all()
+
     async def list_scores_for_hole(self, group_id: UUID, hole_id: UUID) -> Sequence[HoleScore]:
         result = await self._session.execute(
             select(HoleScore).where(HoleScore.group_id == group_id, HoleScore.hole_id == hole_id)
