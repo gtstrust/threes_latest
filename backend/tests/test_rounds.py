@@ -30,8 +30,18 @@ async def _course(client: AsyncClient, headers, hole_count: int = 18) -> str:
     return course_id
 
 
-async def _tournament(client: AsyncClient, headers, course_id: str | None) -> str:
-    payload: dict[str, object] = {"name": "Acme Corporate Day"}
+async def _tournament(
+    client: AsyncClient,
+    headers,
+    course_id: str | None,
+    group_size: int = 3,
+    loop_style: str = "BLOCKS",
+) -> str:
+    payload: dict[str, object] = {
+        "name": "Acme Corporate Day",
+        "group_size": group_size,
+        "loop_style": loop_style,
+    }
     if course_id:
         payload["course_id"] = course_id
     created = await client.post("/tournaments", headers=headers, json=payload)
@@ -56,11 +66,20 @@ async def _add_virtual(client: AsyncClient, headers, tournament_id: str, name: s
 
 
 async def _ready_tournament(
-    client: AsyncClient, headers, player_count: int, hole_count: int = 18
+    client: AsyncClient,
+    headers,
+    player_count: int,
+    hole_count: int = 18,
+    group_size: int = 3,
+    loop_style: str = "BLOCKS",
 ) -> tuple[str, list[str]]:
-    """A tournament with a course, a field, and registration closed."""
+    """A tournament with a course, a field, and registration closed.
+
+    Defaults to threes in blocks, so every test written before those were
+    settings still describes exactly the event it always did.
+    """
     course_id = await _course(client, headers, hole_count)
-    tournament_id = await _tournament(client, headers, course_id)
+    tournament_id = await _tournament(client, headers, course_id, group_size, loop_style)
     await _set_status(client, headers, tournament_id, TournamentStatus.REGISTRATION_OPEN)
 
     participant_ids = [
@@ -311,8 +330,8 @@ async def test_holes_the_course_does_not_have_are_refused(client, make_token):
 @pytest.mark.parametrize(
     ("holes", "because"),
     [
-        ([7, 8], "multiple of 3"),
-        ([7, 8, 9, 10], "multiple of 3"),
+        ([7, 8], "at least 3"),
+        ([7], "at least 3"),
         ([7, 7, 8], "Duplicate"),
         ([0, 1, 2], "between 1 and 18"),
         ([17, 18, 19], "between 1 and 18"),
@@ -324,6 +343,11 @@ async def test_a_selection_that_cannot_form_loops_is_rejected(client, make_token
     The course-wide default does drop a remainder — eight holes give two loops —
     but a selection is a statement of intent, so quietly ignoring part of it
     would be the worse answer.
+
+    These three are malformed under every start style, which is what keeps them
+    on the schema. "A multiple of three" is not one of them any more: it depends
+    on the tournament's `loop_style`, so it moved to the service and answers 409
+    — see the two tests below.
     """
     organiser = await _player(client, make_token, "organiser@example.com")
     tournament_id, _ = await _ready_tournament(client, organiser, player_count=3)
@@ -569,3 +593,165 @@ async def test_rounds_require_authentication(client, make_token):
 
     assert (await client.post(f"/tournaments/{tournament_id}/rounds")).status_code in (401, 403)
     assert (await client.get(f"/tournaments/{tournament_id}/rounds")).status_code in (401, 403)
+
+
+# --- Shotgun starts (ADR-011) -----------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_blocks_draw_still_needs_whole_triples(client, make_token):
+    """409 from the service now, not 422 from the schema.
+
+    The rule did not change for a blocks event — only where it is enforced,
+    because the style it depends on lives on the tournament and a request body
+    cannot see it.
+    """
+    organiser = await _player(client, make_token, "organiser@example.com")
+    tournament_id, _ = await _ready_tournament(client, organiser, player_count=3)
+
+    refused = await _draw(client, organiser, tournament_id, holes=[7, 8, 9, 10])
+
+    assert refused.status_code == 409
+    detail = refused.json()["detail"]
+    assert "multiple of 3" in detail
+    assert "shotgun" in detail  # the message names the way out
+
+
+@pytest.mark.asyncio
+async def test_a_shotgun_draws_a_loop_from_every_hole_in_the_selection(client, make_token):
+    """The same four holes a blocks draw refuses are four starting tees here."""
+    organiser = await _player(client, make_token, "organiser@example.com")
+    tournament_id, _ = await _ready_tournament(
+        client, organiser, player_count=12, loop_style="SHOTGUN"
+    )
+
+    drawn = await _draw(client, organiser, tournament_id, holes=[7, 8, 9, 10])
+
+    assert drawn.status_code == 201, drawn.text
+    groups = drawn.json()["groups"]
+    assert len(groups) == 4
+    assert len({tuple(sorted(h["hole_id"] for h in g["holes"])) for g in groups}) == 4
+
+
+@pytest.mark.asyncio
+async def test_a_shotgun_loop_wraps_the_turn(client, make_token):
+    """The late tees play through the turn rather than being finishing holes only.
+
+    Six holes in play, six groups: the group starting on 5 plays 5, 6, 1 — in
+    that order, which is what the sequence is for.
+    """
+    organiser = await _player(client, make_token, "organiser@example.com")
+    course_id = await _course(client, organiser, hole_count=18)
+    tournament_id = await _tournament(client, organiser, course_id, loop_style="SHOTGUN")
+    await _set_status(client, organiser, tournament_id, TournamentStatus.REGISTRATION_OPEN)
+    for index in range(18):
+        await _add_virtual(client, organiser, tournament_id, f"Player {index:02d}")
+    await _set_status(client, organiser, tournament_id, TournamentStatus.REGISTRATION_CLOSED)
+
+    drawn = await _draw(client, organiser, tournament_id, holes=[1, 2, 3, 4, 5, 6])
+
+    assert drawn.status_code == 201, drawn.text
+    groups = sorted(drawn.json()["groups"], key=lambda g: g["group_number"])
+    assert len(groups) == 6
+
+    loops = [await _hole_numbers(client, organiser, course_id, group) for group in groups]
+    assert loops[0] == [1, 2, 3]
+    assert loops[4] == [5, 6, 1]
+    assert loops[5] == [6, 1, 2]
+
+
+@pytest.mark.asyncio
+async def test_sixty_four_players_are_sixteen_fourballs_each_on_their_own_tee(client, make_token):
+    """The event this whole feature exists for, end to end through the API.
+
+    Sixty-four sequential participant POSTs makes this the slowest test in the
+    suite; it earns that by being the only one that proves the arithmetic holds
+    at the scale it was designed for.
+    """
+    organiser = await _player(client, make_token, "organiser@example.com")
+    course_id = await _course(client, organiser, hole_count=18)
+    tournament_id = await _tournament(
+        client, organiser, course_id, group_size=4, loop_style="SHOTGUN"
+    )
+    await _set_status(client, organiser, tournament_id, TournamentStatus.REGISTRATION_OPEN)
+    participant_ids = [
+        await _add_virtual(client, organiser, tournament_id, f"Player {index:02d}")
+        for index in range(64)
+    ]
+    await _set_status(client, organiser, tournament_id, TournamentStatus.REGISTRATION_CLOSED)
+
+    drawn = await _draw(client, organiser, tournament_id)
+
+    assert drawn.status_code == 201, drawn.text
+    groups = sorted(drawn.json()["groups"], key=lambda g: g["group_number"])
+    assert len(groups) == 16
+    assert all(len(group["members"]) == 4 for group in groups)
+
+    placed = [m["participant_id"] for group in groups for m in group["members"]]
+    assert sorted(placed) == sorted(participant_ids)
+
+    loops = [await _hole_numbers(client, organiser, course_id, group) for group in groups]
+    # Sixteen groups, sixteen different first tees, all teeing off at once.
+    assert [loop[0] for loop in loops] == list(range(1, 17))
+    assert all(loop == [loop[0], loop[0] + 1, loop[0] + 2] for loop in loops)
+
+
+@pytest.mark.asyncio
+async def test_three_rounds_keep_the_shape_and_reshuffle_the_field(client, make_token):
+    """A corporate day is three loops, not one — and nothing is re-entered.
+
+    The settings live on the tournament precisely so rounds two and three come
+    out the same shape without the organiser restating them. Nothing else in the
+    suite reaches a third round.
+    """
+    random.seed(20260911)
+    organiser = await _player(client, make_token, "organiser@example.com")
+    tournament_id, participant_ids = await _ready_tournament(
+        client, organiser, player_count=16, group_size=4, loop_style="SHOTGUN"
+    )
+
+    groupings = []
+    for expected_number in (1, 2, 3):
+        drawn = await _draw(client, organiser, tournament_id)
+        assert drawn.status_code == 201, drawn.text
+        assert drawn.json()["round_number"] == expected_number
+
+        groups = drawn.json()["groups"]
+        assert len(groups) == 4
+        assert all(len(group["members"]) == 4 for group in groups)
+
+        placed = [m["participant_id"] for group in groups for m in group["members"]]
+        assert sorted(placed) == sorted(participant_ids)
+
+        groupings.append(
+            {frozenset(m["participant_id"] for m in group["members"]) for group in groups}
+        )
+        await client.post(f"/rounds/{drawn.json()['id']}/complete", headers=organiser)
+
+    # Round 1 is registration order; 2 and 3 shuffle, so they must differ from it.
+    assert groupings[1] != groupings[0]
+    assert groupings[2] != groupings[0]
+
+    board = await client.get(f"/tournaments/{tournament_id}/leaderboard", headers=organiser)
+    assert len(board.json()["entries"]) == 16
+
+
+@pytest.mark.asyncio
+async def test_more_groups_than_tees_still_share_under_a_shotgun(client, make_token):
+    """A shotgun does not refuse a field bigger than the course.
+
+    Twenty-one threes on eighteen tees: the last three double up on tees 1-3 and
+    tee off staggered, exactly as a blocks draw does when it runs short.
+    """
+    organiser = await _player(client, make_token, "organiser@example.com")
+    tournament_id, _ = await _ready_tournament(
+        client, organiser, player_count=63, loop_style="SHOTGUN"
+    )
+
+    drawn = await _draw(client, organiser, tournament_id)
+
+    assert drawn.status_code == 201, drawn.text
+    groups = drawn.json()["groups"]
+    assert len(groups) == 21
+    starts = {tuple(sorted(h["hole_id"] for h in group["holes"])) for group in groups}
+    assert len(starts) == 18  # eighteen distinct loops, three of them used twice

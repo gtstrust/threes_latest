@@ -9,6 +9,7 @@ from app.core.security import CurrentUser, decode_supabase_jwt
 from app.models.course import Course
 from app.models.round import Group
 from app.models.tournament import Tournament, TournamentKind
+from app.services.advancement import AdvancementService
 from app.services.course import CourseService
 from app.services.fun_round import FunRoundService
 from app.services.leaderboard import LeaderboardService
@@ -91,6 +92,12 @@ async def get_score_entry_service(
     return ScoreEntryService(session)
 
 
+async def get_advancement_service(
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> AdvancementService:
+    return AdvancementService(session)
+
+
 async def get_leaderboard_service(
     session: Annotated[AsyncSession, Depends(get_db)],
 ) -> LeaderboardService:
@@ -133,6 +140,7 @@ RoundServiceDep = Annotated[RoundService, Depends(get_round_service)]
 FunRoundServiceDep = Annotated[FunRoundService, Depends(get_fun_round_service)]
 StatsServiceDep = Annotated[StatsService, Depends(get_stats_service)]
 ScoreEntryServiceDep = Annotated[ScoreEntryService, Depends(get_score_entry_service)]
+AdvancementServiceDep = Annotated[AdvancementService, Depends(get_advancement_service)]
 LeaderboardServiceDep = Annotated[LeaderboardService, Depends(get_leaderboard_service)]
 RealtimeNotifierDep = Annotated[RealtimeNotifier, Depends(get_realtime_notifier)]
 MailerDep = Annotated[Mailer, Depends(get_mailer)]

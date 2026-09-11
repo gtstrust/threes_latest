@@ -17,6 +17,11 @@ class LeaderboardEntryRead(BaseModel):
     position: int
     participant_id: UUID
     display_name: str
+    #: How many rounds this player was alive for, on a **knockout** — the last
+    #: round they were drawn into, plus one if they won it, so the champion is
+    #: alone at the top (ADR-012). Null on a round robin, where nobody is
+    #: knocked out and the figure would mean nothing.
+    rounds_survived: int | None = None
     points: int
     total_strokes: int
     holes_played: int

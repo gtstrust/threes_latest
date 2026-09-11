@@ -17,6 +17,7 @@ import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { Card, Empty, ErrorNote, Loading, Page } from '../../components/ui';
+import { reachedLabel } from '../tournaments/knockout';
 import { keys, useLeaderboard, useRoundLeaderboard, useRounds } from '../../lib/queries';
 import { subscribeToTournament } from '../../lib/realtime';
 import type { Leaderboard, UUID } from '../../lib/types';
@@ -97,6 +98,18 @@ export function Board({ board }: { board: Leaderboard }) {
     );
   }
 
+  // A knockout board carries how far each player got, and is ranked by it first
+  // (ADR-012). A round-robin board carries null and is ranked exactly as it
+  // always was, so the column is absent rather than empty.
+  // `!= null` rather than `!== null`: an older client or a trimmed payload can
+  // leave the key absent, and undefined means the same thing here — this board
+  // is not a knockout's, so the column does not belong on it.
+  const knockout = board.entries.some((entry) => entry.rounds_survived != null);
+  const roundsPlayed = Math.max(
+    0,
+    ...board.entries.map((entry) => entry.rounds_survived ?? 0),
+  ) - 1;
+
   return (
     <Card>
       <table className="board">
@@ -104,6 +117,7 @@ export function Board({ board }: { board: Leaderboard }) {
           <tr>
             <th scope="col">#</th>
             <th scope="col">Player</th>
+            {knockout && <th scope="col">Reached</th>}
             <th scope="col">Pts</th>
             <th scope="col">Strokes</th>
             <th scope="col">Holes</th>
@@ -117,6 +131,9 @@ export function Board({ board }: { board: Leaderboard }) {
                   rest muted. */}
               <td className={`place place-${Math.min(entry.position, 4)}`}>{entry.position}</td>
               <td>{entry.display_name}</td>
+              {knockout && (
+                <td className="muted">{reachedLabel(entry.rounds_survived, roundsPlayed)}</td>
+              )}
               <td>
                 <strong>{entry.points}</strong>
               </td>
@@ -128,7 +145,11 @@ export function Board({ board }: { board: Leaderboard }) {
           ))}
         </tbody>
       </table>
-      <p className="muted small">Level players are split by fewest total strokes.</p>
+      <p className="muted small">
+        {knockout
+          ? 'Ranked by how far a player got, then points, then fewest total strokes.'
+          : 'Level players are split by fewest total strokes.'}
+      </p>
     </Card>
   );
 }

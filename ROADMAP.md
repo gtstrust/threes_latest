@@ -92,17 +92,23 @@ Slice 4 is the one to get right: score entry is a conversation, not a form. Stro
 they tie the API answers with `tied_participants` — the app then asks *only those players* who was
 closest to the pin, and re-posts the same hole with the answer.
 
-### Explicitly out of scope for MVP
+### Knockout brackets ✅ *built*
 
-Knockout **bracket progression** (seeding, elimination, advancement). A corporate golf day needs
-rounds plus a cumulative leaderboard.
+Each group is a match and **one player goes through**; the rest are out. 64 players in fourballs is
+16 groups, then 4, then 1, then a champion — three rounds, and 64 is the largest field that fits
+three. Who advances is decided by most points, then fewest strokes, then countback on the latest
+hole won, with the organiser as the backstop for a group that finished completely all square. The
+verdict is stored on the group, and the tournament leaderboard ranks a knockout by how far a player
+got. See **ADR-012** in `CLAUDE.md`.
 
-`KNOCKOUT` remains a value of the `tournament_format` database enum so the column won't need
-migrating when brackets are eventually built, but **the API rejects it** — `SUPPORTED_FORMATS` in
-`app/models/tournament.py` lists what `POST /tournaments` will accept. Accepting it would fail
-silently: the event would run exactly like a round robin and the organiser would only discover
-nobody was being eliminated partway through the day. Adding the value to `SUPPORTED_FORMATS` is the
-single change needed to open it back up.
+This was out of scope for MVP and was opened up exactly as predicted: `SUPPORTED_FORMATS` in
+`app/models/tournament.py` was the single gate, and `KNOCKOUT` had been a value of the
+`tournament_format` database enum since migration 0001, so storing it needed no migration. The one
+schema change was the pair of advancement columns on `groups`.
+
+**Seeding is still out of scope** — the bracket re-randomises each round rather than carrying a
+structure forward, because there is no handicap or ranking to seed *from* until Phase 3, and a
+bracket seeded on registration order would look meaningful while carrying nothing.
 
 ---
 

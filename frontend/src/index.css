@@ -725,6 +725,23 @@ select {
   border-color: var(--green);
 }
 
+/* The tee, which is the reason the card is opened at 8am.
+   A shotgun start puts every group somewhere different, so this is the only
+   line on the screen a player cannot work out for themselves — sized to be read
+   at arm's length, in sun, while walking. */
+.start-hole {
+  margin: 0.4rem 0 0.2rem;
+  font-size: 1.05rem;
+  color: var(--ink);
+}
+
+.start-hole strong {
+  font-family: var(--display);
+  font-size: 1.35rem;
+  color: var(--green);
+  white-space: nowrap;
+}
+
 /* --- On course ---------------------------------------------------------- */
 
 /*

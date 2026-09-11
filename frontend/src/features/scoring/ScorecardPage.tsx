@@ -15,8 +15,9 @@ import { useQuery } from '@tanstack/react-query';
 
 import { Card, Empty, ErrorNote, Loading, Page } from '../../components/ui';
 import { api } from '../../lib/api';
-import { useCourse, useGroupCard, useRound, useTournament } from '../../lib/queries';
+import { useEventCourse, useGroupCard, useRound } from '../../lib/queries';
 import type { DecidedBy, Group, HoleResult, Participant, UUID } from '../../lib/types';
+import { loopHoles } from '../rounds/loop';
 
 /** ADR-007's three levels, said the way a player would say them. */
 const HOW: Record<DecidedBy, string> = {
@@ -44,9 +45,10 @@ export function ScorecardPage({ groupId, backTo }: { groupId: UUID; backTo?: Bac
   });
   // For the real hole numbers. A group plays holes 4-6 of a course, and "4" is
   // what a player recognises — "hole 1 of the loop" is the app's bookkeeping,
-  // not theirs.
-  const tournament = useTournament(tournamentId ?? '');
-  const course = useCourse(tournament.data?.course_id);
+  // not theirs. Asked of whichever endpoint holds this event: a fun round is a
+  // `tournaments` row, but `/tournaments/{id}` answers 404 for one.
+  const kind = backTo?.to.startsWith('/r/') ? 'fun_round' : 'tournament';
+  const course = useEventCourse(tournamentId, kind);
 
   const back = backTo ?? { to: `/g/${groupId}`, label: 'Scoring' };
 
@@ -69,11 +71,10 @@ export function ScorecardPage({ groupId, backTo }: { groupId: UUID; backTo?: Bac
   // in playing order or it isn't a card. The label is the course's own hole
   // number where it is known, falling back to the position in the loop while
   // the course is still loading.
-  const numberOf = new Map(course.data?.holes.map((h) => [h.id, h.hole_number]) ?? []);
-  const holes = loop.map((hole, index) => ({
-    key: hole.hole_id,
-    label: numberOf.get(hole.hole_id) ?? index + 1,
-    result: played.find((r) => r.hole_id === hole.hole_id) ?? null,
+  const holes = loopHoles(group.data?.holes ?? [], course.data).map((hole) => ({
+    key: hole.holeId,
+    label: hole.label,
+    result: played.find((r) => r.hole_id === hole.holeId) ?? null,
   }));
 
   return (

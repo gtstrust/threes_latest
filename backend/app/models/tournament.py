@@ -2,12 +2,19 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID, uuid4
 
-from sqlalchemy import ARRAY, DateTime, ForeignKey, Integer, String
+from sqlalchemy import ARRAY, CheckConstraint, DateTime, ForeignKey, Integer, String, text
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
+
+# Imported rather than restated. `LoopStyle` is part of the draw's contract in
+# `services/grouping.py`, and a second copy here is how the database label and
+# the vocabulary ADR-011 uses quietly drift apart — the same reasoning that
+# brings `DecidedBy` into `models/score.py`. `grouping.py` imports nothing from
+# `app.*`, so this is not a cycle.
+from app.services.grouping import MAX_GROUP_SIZE, TARGET_GROUP_SIZE, LoopStyle
 
 
 class TournamentStatus(str, Enum):
@@ -40,22 +47,23 @@ class TournamentKind(str, Enum):
 
 
 class TournamentFormat(str, Enum):
-    """Formats the database column can hold — not the ones the API will accept.
+    """How a tournament's rounds relate to each other.
 
-    KNOCKOUT exists here so the column doesn't need migrating when bracket
-    progression is eventually built, but nothing implements it today and the API
-    rejects it. See SUPPORTED_FORMATS below.
+    ROUND_ROBIN redraws the whole field every round and the leaderboard adds up.
+    KNOCKOUT makes each group a match: one player goes through and the rest are
+    out, so the field shrinks every round (ADR-012).
     """
 
     ROUND_ROBIN = "ROUND_ROBIN"
     KNOCKOUT = "KNOCKOUT"
 
 
-# Formats the API will actually accept. KNOCKOUT is deliberately absent: there is
-# no seeding, elimination or advancement behind it, so a tournament created as a
-# knockout would run exactly like a round robin and the organiser would only find
-# out mid-event. Adding a format here is the single change needed to open it up.
-SUPPORTED_FORMATS: frozenset[TournamentFormat] = frozenset({TournamentFormat.ROUND_ROBIN})
+# Formats the API will actually accept — every one of them, now that knockout has
+# advancement behind it. The constant stays rather than being inlined: it is the
+# mechanism by which a *future* format can sit in the column, and be storable and
+# readable, before anything implements it. That is what it did for KNOCKOUT from
+# migration 0001 until ADR-012, and it is why adding one was a one-line change.
+SUPPORTED_FORMATS: frozenset[TournamentFormat] = frozenset(TournamentFormat)
 
 
 class Tournament(Base, TimestampMixin):
@@ -124,4 +132,37 @@ class Tournament(Base, TimestampMixin):
     # real, not a limit the platform invents for them.
     max_players: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
+    # How this event's draw is shaped (ADR-004, ADR-011). Both live on the
+    # tournament rather than on each draw because rounds two and three have to
+    # come out the same shape as round one without the organiser restating
+    # anything — a per-draw-only setting puts a round of threes inside a fourball
+    # event one missed keystroke away. `hole_numbers` stays per-draw by contrast,
+    # because the holes genuinely do vary round to round.
+    #
+    # Neither is nullable, unlike `max_players`: a stored default and an absent
+    # one behave identically, so there is no meaningful "unset". The server
+    # defaults are what let existing rows and the ORM insert without naming them.
+    group_size: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=TARGET_GROUP_SIZE,
+        server_default=text(str(TARGET_GROUP_SIZE)),
+    )
+    loop_style: Mapped[LoopStyle] = mapped_column(
+        SAEnum(LoopStyle, name="loop_style"),
+        nullable=False,
+        default=LoopStyle.BLOCKS,
+        server_default=LoopStyle.BLOCKS.value,
+    )
+
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # The format's floor and ceiling, enforced by the database and not only by the
+    # schema: a group of five has nobody to play the ADR-007 cascade against, and
+    # a wrong row is worse than a rejected write.
+    __table_args__ = (
+        CheckConstraint(
+            f"group_size BETWEEN {TARGET_GROUP_SIZE} AND {MAX_GROUP_SIZE}",
+            name="ck_tournaments_group_size",
+        ),
+    )

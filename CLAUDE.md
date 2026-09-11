@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Threes is a short-form competitive golf platform where players compete over 3-hole loops instead of traditional 18-hole rounds. The platform manages tournaments (round-robin; knockout is a long-term goal and the API rejects it today), casual "fun rounds," real-time leaderboards, and player profiles.
+Threes is a short-form competitive golf platform where players compete over 3-hole loops instead of traditional 18-hole rounds. The platform manages tournaments (round-robin and knockout — see ADR-012), casual "fun rounds," real-time leaderboards, and player profiles.
 
 **MVP Target:** Corporate Golf Days — structured events where an organiser controls the entire course.
 
@@ -26,7 +26,7 @@ Within `docs/`, only `DEPLOYMENT.md` is written — `ARCHITECTURE.md`, `API.md` 
 the structure below are still target layout.
 
 **The ADRs live in this file**, under "Architecture Decisions" below — not in `docs/`. ADR-001
-through ADR-010 are cited all over the codebase, tests and commit messages, and this is the only
+through ADR-012 are cited all over the codebase, tests and commit messages, and this is the only
 place they resolve to.
 
 See [`backend/CLAUDE.md`](./backend/CLAUDE.md) for backend-specific commands, the auth/JWT model,
@@ -212,6 +212,33 @@ Three is the format, so the draw makes groups of 3 wherever it can. The other tw
 
 Nothing in the scoring engine changed with it: `score_hole` takes a mapping of any size, and ADR-007's cascade is defined over "the players tied on strokes" without reference to how many there are. The cost is that a fourball has a slightly lower chance of an outright stroke winner than a three, so tie-breaks are asked marginally more often.
 
+**Amended again: the target size is a per-event setting, defaulting to three.** `group_sizes` now
+takes a target and `tournaments.group_size` carries it — 3 unless an organiser chooses 4.
+Everything above is what a target of 3 does, unchanged; a target of 4 is the same sentence with the
+divisor moved.
+
+The generalised remainder rule is one sentence: **fill groups of the target size, give the leftover
+players their own group, and if that would leave somebody alone, absorb them into the previous
+group — splitting it as evenly as possible if that makes it larger than a group may be.** For a
+target of three that is exactly the rule above: 3+1 is 4, which is allowed, so 7 is 3+4. For a
+target of four it is not: 4+1 is 5, which is not a legal group, so it splits, and 5 is 3+2 while 9
+is 4+3+2. Under either target no group is ever outside 2–4 and none is ever 1.
+
+**Why four is now offered, having been argued against.** The objection stands and is not withdrawn:
+dividing the whole field by four would turn every group into a fourball and quietly stop the
+platform being about threes. What changed is that it is no longer *the platform* dividing — it is
+one organiser making one explicit choice for one event, and the default is still three.
+
+The reason they need it is arithmetic that only appears at scale, and it is ADR-011's: a true
+shotgun start needs one starting tee per group, and a course has eighteen. Sixty-four players in
+threes is twenty-one groups, which does not fit; in fourballs it is sixteen, which does. Refusing
+fours would not keep that day about threes — it would put groups on shared tees teeing off
+staggered, which is a different day again.
+
+The cost is the one already recorded: a fourball has a slightly lower chance of an outright stroke
+winner, so ADR-007's tie-break is asked marginally more often. Nothing in the scoring engine
+changes.
+
 ### ADR-005: Offline-resilient score entry — Phase 3
 Deferred from MVP (see `THREES_STRATEGY.md` §2). MVP score submission is online-only with retry-on-failure and a connectivity warning; no local persistence. Phase 3 revisits this only if pilot feedback shows on-course connectivity is actually a problem: pending submissions would be queued in IndexedDB, synced when connectivity returns, shown with a "pending" indicator, and the server would resolve conflicts (last-write-wins with timestamp). The service worker deliberately does **not** cache API responses today — a stale leaderboard served silently is worse than an honest error, because a player would trust a board that had stopped moving.
 
@@ -246,6 +273,19 @@ Because the tie-breaks are scoped to the players they concern, "no winner" is un
 **Score entry follows from this.** There is no point flagging a hole-wide closest-to-pin or longest-drive winner, since only the tied subset counts. The tie-breaks are captured on demand: the client submits strokes, and *if* those tie, the app asks the tied players — "which of you was closest to the pin?", then if still level, "which of you hit the longest drive on the fairway?". Nothing is recorded unless it actually decided a hole.
 
 The overall leaderboard breaks level players on **fewest total strokes across the loop**. This deliberately replaces countback on the hardest-ranked hole, which would have required the organiser to enter a difficulty ranking for every hole at setup.
+
+**A noted cost of that tie-break, made maximal by ADR-011.** Points are won *within* a group, over
+the same three holes, so the primary sort is unaffected by which loop a group drew. Only the
+tie-break is exposed: fewest total strokes compares a player who drew three par-3s with one who
+drew three par-5s. A shotgun start makes this as large as it gets — with sixteen groups on eighteen
+tees, no two groups play the same three holes.
+
+Nothing is done about it, for the reason this ADR already gives when it rejected countback: every
+fix needs data the organiser is not required to enter. `par` is deliberately nullable, so a
+strokes-to-par tie-break would either break for courses that never entered par or silently switch
+rules depending on how complete the data was — worse than honest imprecision. Two mitigations
+already exist: several rounds with re-randomised groups spread the luck, and with integer points
+over nine holes the tie-break separates far fewer players than it looks like it will.
 
 **Forward compatibility with handicaps (Phase 3):** because the client submits only raw strokes (ADR-002) and points are always derived server-side, net scoring can be layered on later without changing the score-entry path or re-migrating stored scores.
 
@@ -305,6 +345,128 @@ an eavesdropper who guessed one would learn only that somebody scored. Private c
 **Only score entry signals.** A new draw or a completed round also change what a client should show,
 but a client learns those on its own refresh; adding `round_drawn` / `round_complete` is two more
 call sites and a second event type, and waits until the frontend shows it is needed.
+
+### ADR-011: A shotgun start is one group per tee, and the loop wraps
+
+Two ways of cutting the holes in play into loops, chosen per event by `tournaments.loop_style`:
+
+- **`BLOCKS`** — the default, and everything that existed before. The holes are cut into disjoint
+  triples, 1-3, 4-6, 7-9, so eighteen holes make six loops. Groups beyond the sixth share loops
+  round-robin and tee off staggered.
+- **`SHOTGUN`** — every hole in play is a starting tee. A group starting on hole *s* plays *s*,
+  *s+1*, *s+2*, counted **modulo the holes in play**, so eighteen holes make eighteen loops and the
+  group on the 17th plays 17, 18, 1.
+
+The windows overlap, and that is the point: they cannot collide. At step *t* the group that started
+on *s* is on hole *s+t*, so two groups are on the same hole only if they started on the same tee.
+The field moves round the course as one procession, which is what a shotgun start is.
+`test_no_two_groups_are_ever_on_the_same_hole` asserts exactly that, per step.
+
+**Wrapping is what makes it eighteen loops rather than sixteen.** Without it the 17th and 18th tees
+could only ever be finishing holes and a course's worth of starting positions would quietly be
+sixteen — which is the difference between a 64-player fourball field having a tee each and not.
+
+**The wrap is generated, not typed.** The loop builder takes the holes in playing order and does
+the modular arithmetic itself, so an organiser never has to express "17, 18, 1" and `_select_holes`
+is free to go on sorting a selection into hole order. That sort is not a limitation of this design;
+it is its input.
+
+**Groups may still outnumber tees** — twenty-two groups of three on eighteen holes. The existing
+round-robin sharing in `allocate_loops` handles it unchanged, and no draw is refused for it.
+
+**A selection's shape is checked against the style, and so in the service rather than the schema.**
+`BLOCKS` needs whole triples, so a selection must be a multiple of three; `SHOTGUN` needs only that
+three holes exist, because every one of them is a start — a shotgun over holes 1-10 is ten loops.
+The style lives on the tournament, so the request body cannot tell which rule applies: a schema
+enforcing "a multiple of three" would 422 the common shotgun case. The check moved into
+`RoundService._check_selection`, next to the other thing only the service knows — whether the course
+has those holes — and answers **409** alongside it. The error names the way out.
+
+**Why two functions rather than a flag.** `build_loops` promises disjoint triples with the remainder
+unused; `build_shotgun_loops` promises overlapping windows with every hole a start. A boolean would
+give two contracts one docstring and one test table, so they stay separate behind a `plan_loops`
+dispatcher, and `build_loops`' original tests survive untouched as the guard that the default did
+not move.
+
+### ADR-012: A knockout advances one player per group, and the verdict is stored
+
+In a `KNOCKOUT` tournament each group is a match and **one player goes through**. The rest are out.
+A 64-player fourball field is sixteen groups, then four, then one, then a champion — three rounds,
+and 64 is the largest bracket that fits three, because 65 players need four.
+
+**Who goes through is decided by four levels, stopping at the first that separates them:**
+
+1. **Most points** over the loop.
+2. **Fewest total strokes**, the same tie-break the leaderboard uses (ADR-007).
+3. **Countback — whoever won the latest hole.** Holes nobody won are skipped, and so are holes won
+   by a player already out on points or strokes: the question is which of *these two* took a hole
+   later, which is the same scoping ADR-007 puts on closest to the pin.
+4. **The organiser adjudicates.**
+
+**The fourth level is rarer than it looks, and the reason is worth stating.** Points come *only*
+from winning holes, so co-leaders on zero points mean nobody in the group won anything — every hole
+was halved. Countback therefore settles every tie **except a group that finished completely all
+square**, three or four players who halved everything in the same number of shots. Measured at the
+worst case, where a group never answers the closest-to-pin question, that is about 4.6% of fourball
+loops — under one of the sixteen groups in a 64-player round one, and rarer still in practice
+because groups do answer.
+
+There is nothing in the data that can break that tie, and the honest choices are a coin or a human.
+The human is better: they are standing there, they can send the group back down the last hole, and
+they are already who the field looks at when something is unclear.
+
+**Countback rather than a play-off or a re-draw.** A play-off needs the field still on the course
+and the light to hold. Re-drawing both players into the next round breaks the bracket's arithmetic —
+in a round of four it would produce a final of five. Countback costs nothing: `hole_results` already
+holds one winner per hole and `group_holes.sequence` already holds the order, and it is what golf
+does.
+
+**The verdict is stored, not recomputed.** `groups.advancing_participant_id` and
+`groups.advanced_by` are written when the round completes. This is ADR-009's argument applied to a
+bracket: an audit trail recalculated on demand records nothing — it would only ever show what
+today's code thinks, not who the field was told had gone through. It also keeps "she won on
+countback" as a fact, and makes the next draw a read rather than a re-derivation of the previous
+round's entire card.
+
+**They are written at `complete_round`**, the moment a round's scores stop changing: `submit_hole`
+already refuses a round that is not `IN_PROGRESS`, and there is no route back to it. So a verdict
+can never fall out of step with the scores behind it. Completing a round does **not** refuse an
+undecided group — the organiser has to be able to close the round while the field walks in — and
+the refusal lands at the next draw, where it actually blocks something.
+
+**Both columns are nullable, and a check constraint pairs them.** A round-robin group has neither,
+forever, which is what makes it provable that nothing about a round robin changed. A knockout group
+the cascade could not settle also has neither, and the next draw **refuses**, naming the groups
+(409). It does not guess and it does not drop the group from the bracket.
+`(advancing_participant_id IS NULL) = (advanced_by IS NULL)` is enforced in the database for
+ADR-009's reason: a level with no player, or a player with no level, is a half-written verdict, and
+a wrong row is a player told they went through when they did not.
+
+**The organiser fills a gap; they do not overwrite an answer.** Adjudicating a group that already
+has a verdict is a 409. They are the backstop for "nothing separated them", not an editor of
+results — and there is no correction to serve either, since a completed round's scores are closed.
+
+**The bracket is re-randomised each round, not seeded.** `build_groups` is order-preserving, so
+carrying the previous round's group order forward would put group 1's winner against group 2's
+winner every time — a fixed bracket whose shape came from nothing but registration order surviving
+round one. Nothing here seeds, so that structure would carry no meaning while looking like it did.
+Seeding stays out of scope: there is no handicap or ranking to seed *from* until Phase 3.
+
+**The last player is a refusal, not a transition.** When one player remains the draw answers 409
+naming the champion and pointing at the status endpoint. Ending the tournament stays the organiser's
+to press (ADR-003, ADR-008) — a draw that quietly set `TOURNAMENT_COMPLETE` would be setting a
+status it does not own. Without the guard the draw reaches `group_sizes(1)` and answers "Cannot form
+a group from a single player", which is true and unreadable as "you have a champion".
+
+**The leaderboard ranks a knockout by how far a player got**, then points, then strokes. A champion
+can finish *behind* a beaten finalist on cumulative points — they played the same holes, and a
+champion who advanced twice on strokes may have won none at all — so a board ordered on points
+would be reporting a different competition from the one that was run. `rounds_survived` is the last
+round a player was drawn into plus one if they won it, which puts the champion alone at the top by
+construction. It defaults to 0, making it a constant leading sort key for every round robin and
+therefore no change to one; on the wire it is **null** rather than 0 on a round robin, because 0
+would read as "went out immediately".
+
 
 ## Coding Conventions
 
@@ -391,20 +553,39 @@ VITE_API_BASE_URL=http://localhost:8000
   status (`PENDING` / `IN_PROGRESS` / `COMPLETE`), distinct from the tournament's, because a
   tournament runs several rounds and its single status can only describe the current one.
 - **Group**: 2–4 players playing one 3-hole **loop** together. One group = one match. Three is the
-  format; a pair or a fourball absorbs whatever a clean split leaves over (ADR-004).
-- **Loop**: The 3 holes a group plays, taken as consecutive triples of the holes in play.
-  **Each group gets its own loop** — a shotgun start, so the whole field tees off at once instead of
-  queueing. A course caps this: 18 holes make only 6 loops, so above 18 players groups share loops
-  round-robin and tee off staggered. That's expected, not an error.
+  format and the **default**, and a pair or a fourball absorbs whatever a clean split leaves over;
+  an organiser may set `group_size` to 4 for one event, where the same remainder rule fills
+  fourballs instead (ADR-004). The 2–4 range is the same either way — it is what the format can
+  hold, not what the draw aims at.
+- **Loop**: The 3 holes a group plays. **Each group gets its own loop** so the whole field tees off
+  at once instead of queueing, and how many can do that is the event's `loop_style` (ADR-011).
+  Under **blocks** the holes are cut into consecutive, disjoint triples, so 18 holes make 6 loops.
+  Under a **shotgun** every hole in play is a starting tee and the loop wraps the turn, so 18 holes
+  make 18 — a group starting on the 17th plays 17, 18, 1. Past whichever ceiling applies, groups
+  share loops round-robin and tee off staggered. That's expected, not an error.
 - **Playing part of a course**: the draw takes an optional `hole_numbers` — `[7, 8, 9]` for a match
   played inside a normal round. The tournament stays attached to the real course record; which holes
   were played is recorded per group in `group_holes`, so a club never needs a duplicate "holes 7-9"
-  course. Omitted means the whole course. A selection must be a multiple of 3, unlike the course-wide
-  default, which simply leaves a remainder unused: a course is a record of what exists, a selection
-  is a statement of intent, and silently dropping part of one would be the worse answer.
+  course. Omitted means the whole course. Under blocks a selection must be a multiple of 3, unlike
+  the course-wide default, which simply leaves a remainder unused: a course is a record of what
+  exists, a selection is a statement of intent, and silently dropping part of one would be the worse
+  answer. Under a shotgun it need only be 3 or more, since every hole in it is somebody's starting
+  tee. That rule depends on the event's style, so it is enforced by `RoundService` as a **409**
+  rather than by the request schema as a 422 (ADR-011).
 - **The draw**: Round 1 groups players in **registration order**, so people play with the mates they
   signed up alongside. Round 2 onwards shuffles. Both fall out of `build_groups` being deterministic
   and order-preserving — the ordering decision lives in `RoundService`, not the pure function.
+- **Knockout**: a format where each group is a match and **one player goes through** (ADR-012). 64
+  players in fourballs is 16 groups, then 4, then 1, then a champion. The field shrinks every round,
+  so a later round's board is a subset of the tournament's — which is what `_round_field` was always
+  written for. The alternative, and the default, is **round robin**: the whole field every round,
+  and the leaderboard adds up.
+- **Advancing player**: the group's verdict — who went through and which level of the cascade named
+  them (`points` / `strokes` / `countback` / `organiser`), stored on the group rather than
+  recomputed. Null on every round-robin group, and null on a knockout group nothing could separate,
+  where the next draw refuses until the organiser says.
+- **Champion**: not a new noun and not a column — the advancing player of the final round. The draw
+  refuses once one player is left and names them; finishing the event stays the organiser's press.
 - **Hole Score**: The number of strokes a player took on a single hole. Foreign-keys to a `Hole`
   rather than storing a bare hole number, so score → hole → course holds together.
 - **Points**: 1 pt for winning a hole, 0 pts otherwise. **Holes are never halved** — see ADR-007 for

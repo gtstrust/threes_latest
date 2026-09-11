@@ -6,7 +6,7 @@ platform's most critical business logic exhaustively testable without fixtures.
 Persistence and orchestration belong in the service layer that calls this.
 """
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from uuid import UUID
@@ -138,6 +138,10 @@ class ParticipantTotals:
     participant_id: ParticipantId
     points: int
     total_strokes: int
+    #: How many rounds this player was still alive for (ADR-012). Zero for every
+    #: round robin, where the sort key below is then a constant and the ordering
+    #: is exactly what it was before knockout existed.
+    rounds_survived: int = 0
 
 
 @dataclass(frozen=True)
@@ -146,6 +150,7 @@ class LeaderboardRow:
     participant_id: ParticipantId
     points: int
     total_strokes: int
+    rounds_survived: int = 0
 
 
 def rank_leaderboard(totals: Iterable[ParticipantTotals]) -> list[LeaderboardRow]:
@@ -157,16 +162,28 @@ def rank_leaderboard(totals: Iterable[ParticipantTotals]) -> list[LeaderboardRow
 
     Players level on both points and strokes genuinely share a position, and the
     next position skips accordingly (1, 2, 2, 4) as is conventional in golf.
+
+    **`rounds_survived` leads the sort, and is zero everywhere but a knockout**
+    (ADR-012). A knockout champion can finish behind a beaten finalist on
+    cumulative points — they played the same nine holes — so a board ordered on
+    points alone would be reporting a different competition from the one that was
+    run. For a round robin every value is 0, which makes it a constant leading
+    key: the ordering, the shared positions and the stable-sort tie-break are
+    all exactly what they were before knockout existed.
     """
-    ordered = sorted(totals, key=lambda total: (-total.points, total.total_strokes))
+    ordered = sorted(
+        totals,
+        key=lambda total: (-total.rounds_survived, -total.points, total.total_strokes),
+    )
 
     rows: list[LeaderboardRow] = []
     for index, entry in enumerate(ordered):
         previous = ordered[index - 1] if index else None
         is_tied_with_previous = previous is not None and (
+            entry.rounds_survived,
             entry.points,
             entry.total_strokes,
-        ) == (previous.points, previous.total_strokes)
+        ) == (previous.rounds_survived, previous.points, previous.total_strokes)
 
         rows.append(
             LeaderboardRow(
@@ -174,6 +191,112 @@ def rank_leaderboard(totals: Iterable[ParticipantTotals]) -> list[LeaderboardRow
                 participant_id=entry.participant_id,
                 points=entry.points,
                 total_strokes=entry.total_strokes,
+                rounds_survived=entry.rounds_survived,
             )
         )
     return rows
+
+
+class AdvancedBy(str, Enum):
+    """Which level of the knockout cascade sent a player through (ADR-012).
+
+    Stored beside the player it named, like `DecidedBy`: "she went through on
+    countback" is a different event from "the organiser sent her through", and an
+    answer recomputed later records neither.
+    """
+
+    POINTS = "points"
+    STROKES = "strokes"
+    COUNTBACK = "countback"
+    ORGANISER = "organiser"
+
+
+@dataclass(frozen=True)
+class GroupStanding:
+    """One player's card over one group's loop — what a knockout is decided on."""
+
+    participant_id: ParticipantId
+    points: int
+    total_strokes: int
+
+
+@dataclass(frozen=True)
+class Advancement:
+    """Who goes through from one group, and what decided it.
+
+    `winner` is None exactly when `decided_by` is None, and `tied` is non-empty
+    exactly then — the players an organiser has to choose between. It mirrors the
+    way a tied hole reports `tied_participants`: the engine says who is still
+    level rather than inventing an answer.
+    """
+
+    winner: ParticipantId | None
+    decided_by: AdvancedBy | None
+    tied: tuple[ParticipantId, ...]
+
+
+def decide_advancement(
+    standings: Iterable[GroupStanding],
+    hole_winners: Sequence[ParticipantId | None] = (),
+) -> Advancement:
+    """Decide which player goes through from one knockout group (ADR-012).
+
+    Four levels, stopping at the first that separates the players still level:
+    most points, then fewest total strokes, then **countback** — whoever won the
+    latest hole of the loop — and if nothing does, nobody goes through and the
+    organiser adjudicates.
+
+    Countback walks the loop backwards and takes the first hole won by one of the
+    players still tied. Holes nobody won are skipped, and so are holes won by
+    somebody already out on points or strokes: the question is which of *these
+    two* took a hole later, and a third player's hole answers nothing — the same
+    scoping ADR-007 puts on closest to the pin.
+
+    A group can genuinely finish with nobody on anything: `score_hole` returns
+    `NO_WINNER` whenever nothing separates tied players, so "every hole has a
+    winner" is not an invariant and this must not assume it. Note what that
+    implies, because it is why the fourth level is rare — points come *only* from
+    winning holes, so co-leaders on zero points mean every hole was halved.
+    Countback therefore settles every tie except a group that finished completely
+    all square, which is the one case no stored data can answer.
+
+    Args:
+        standings: Every player in the group, with what they scored over the loop.
+        hole_winners: The group's hole winners **in playing order** — index 0 is
+            the first hole of the loop, None where nobody won it, and a short
+            sequence where holes are unplayed.
+
+    Returns:
+        The player who advances and the level that named them, or no winner and
+        the players still level.
+
+    Raises:
+        ValueError: If `standings` is empty or names a participant twice.
+    """
+    cards = list(standings)
+    if not cards:
+        raise ValueError("Cannot decide a group with no players")
+    duplicates = len(cards) - len({card.participant_id for card in cards})
+    if duplicates:
+        raise ValueError(f"standings contains {duplicates} duplicate participant id(s)")
+
+    most = max(card.points for card in cards)
+    level = [card for card in cards if card.points == most]
+    if len(level) == 1:
+        return Advancement(level[0].participant_id, AdvancedBy.POINTS, ())
+
+    fewest = min(card.total_strokes for card in level)
+    level = [card for card in level if card.total_strokes == fewest]
+    if len(level) == 1:
+        return Advancement(level[0].participant_id, AdvancedBy.STROKES, ())
+
+    # Countback: the latest hole taken by one of the players still level. A None
+    # is never in a set of UUIDs, so unwon holes fall through without a guard.
+    contenders = {card.participant_id for card in level}
+    for winner in reversed(hole_winners):
+        if winner in contenders:
+            return Advancement(winner, AdvancedBy.COUNTBACK, ())
+
+    # ORGANISER is never returned here — it is the vocabulary for an answer that
+    # arrives through another door entirely, once a human has been asked.
+    return Advancement(None, None, tuple(card.participant_id for card in level))

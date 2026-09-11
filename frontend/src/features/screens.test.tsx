@@ -19,11 +19,21 @@ import type { SessionState } from './auth/session-context';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const get = vi.fn();
+// `patch` is spied on rather than anonymous because the settings screen is the
+// only place a PATCH body is worth asserting on — it is where an event becomes
+// fourballs and a shotgun, and getting that body wrong is silent.
+const patch = vi.fn();
 vi.mock('../lib/api', async () => {
   const actual = await vi.importActual<typeof import('../lib/api')>('../lib/api');
   return {
     ...actual,
-    api: { get: (p: string) => get(p), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
+    api: {
+      get: (p: string) => get(p),
+      patch: (p: string, body: unknown) => patch(p, body),
+      post: vi.fn(),
+      put: vi.fn(),
+      delete: vi.fn(),
+    },
   };
 });
 vi.mock('../lib/supabase', () => ({
@@ -59,6 +69,20 @@ const FR = 'fun-round-1';
 /** A round the signed-in player was sent the link to but is not yet in. */
 const STRANGERS = 'fun-round-2';
 
+/**
+ * The loop this group plays: holes 7, 8 and 9 of a nine-hole course.
+ *
+ * Deliberately not the first three. The draw is a shotgun start, so a group is
+ * usually *not* on the 1st — and a fixture that starts at hole 1 makes the
+ * course's own hole number and the position in the loop the same number, which
+ * is exactly the confusion these screens have to keep apart.
+ */
+const LOOP = [
+  { hole_id: 'h7', sequence: 1 },
+  { hole_id: 'h8', sequence: 2 },
+  { hole_id: 'h9', sequence: 3 },
+];
+
 const TOURNAMENT = {
   id: T,
   name: 'Acme Corporate Day',
@@ -67,6 +91,8 @@ const TOURNAMENT = {
   max_players: null,
   status: 'ROUND_IN_PROGRESS',
   format: 'ROUND_ROBIN',
+  group_size: 3,
+  loop_style: 'BLOCKS',
   course_id: 'course-1',
   scheduled_at: null,
   created_at: '',
@@ -100,7 +126,9 @@ const ROUTES: Record<string, unknown> = {
         round_id: 'round-1',
         group_number: 1,
         members: [{ participant_id: 'p-kim' }, { participant_id: 'p-dave' }],
-        holes: [{ hole_id: 'h1', sequence: 1 }],
+        holes: LOOP,
+        advancing_participant_id: null,
+        advanced_by: null,
       },
     ],
   },
@@ -175,6 +203,7 @@ const ROUTES: Record<string, unknown> = {
         points: 1,
         total_strokes: 13,
         holes_played: 3,
+        rounds_survived: null,
       },
       // In it, not played yet — listed without a placing it hasn't earned.
       {
@@ -187,6 +216,7 @@ const ROUTES: Record<string, unknown> = {
         points: 0,
         total_strokes: 0,
         holes_played: 0,
+        rounds_survived: null,
       },
     ],
   },
@@ -221,13 +251,13 @@ const ROUTES: Record<string, unknown> = {
     round_id: 'round-1',
     group_number: 1,
     members: [{ participant_id: 'p-kim' }, { participant_id: 'p-dave' }],
-    holes: [{ hole_id: 'h1', sequence: 1 }],
+    holes: LOOP,
   },
   '/groups/group-1/scores': {
     group_id: 'group-1',
     holes: [
       {
-        hole_id: 'h1',
+        hole_id: 'h7',
         // Nobody won it: the strokes tied and no tie-break separated them. A
         // real outcome (ADR-007), and the card has to say so rather than
         // showing a blank that reads as missing data.
@@ -276,6 +306,7 @@ const ROUTES: Record<string, unknown> = {
         points: 2,
         total_strokes: 11,
         holes_played: 3,
+        rounds_survived: null,
       },
       // Level on points, split by strokes — and a player yet to score, who must
       // still be listed: a board missing half the field reads as a bug.
@@ -286,6 +317,7 @@ const ROUTES: Record<string, unknown> = {
         points: 0,
         total_strokes: 0,
         holes_played: 0,
+        rounds_survived: null,
       },
     ],
   },
@@ -293,6 +325,7 @@ const ROUTES: Record<string, unknown> = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  patch.mockResolvedValue(TOURNAMENT);
   get.mockImplementation((path: string) =>
     path in ROUTES
       ? Promise.resolve(ROUTES[path])
@@ -357,6 +390,36 @@ describe('screens render', () => {
     expect(await screen.findByText('Kim')).toBeInTheDocument();
     expect(screen.getByText(/no account/i)).toBeInTheDocument();
     expect(await screen.findByText(/Group 1/)).toBeInTheDocument();
+  });
+
+  it('tells a player which tee to walk to', async () => {
+    // The shotgun start means this is the one fact nobody can infer: every group
+    // goes off at once, so assuming the 1st sends a player to a tee that already
+    // has somebody on it. The draw carried the hole numbers all along — the
+    // screen simply never passed the course in, so the line rendered empty.
+    show(<TournamentPage tournamentId={T} />);
+
+    expect(await screen.findByText('Your group')).toBeInTheDocument();
+    expect(await screen.findByText(/start on/i)).toHaveTextContent(/hole 7/i);
+    // And the whole loop, on the group's row in the draw.
+    expect(await screen.findByText('Holes 7, 8, 9')).toBeInTheDocument();
+  });
+
+  it('numbers the hole strip the way the course does, not 1-2-3', async () => {
+    // A group on 7-9 that sees "1, 2, 3" is being shown a different hole. The
+    // state stays in the accessible name so a label cannot silence it.
+    show(<ScorePage groupId="group-1" />);
+
+    for (const [number, state] of [
+      [7, 'done'],
+      [8, 'now'],
+      [9, 'to play'],
+    ] as const) {
+      expect(
+        await screen.findByRole('button', { name: new RegExp(`^hole ${number} — ${state}$`, 'i') }),
+      ).toBeInTheDocument();
+    }
+    expect(screen.queryByRole('button', { name: /^loop hole/i })).not.toBeInTheDocument();
   });
 
   it('never offers a status the API refuses', async () => {
@@ -644,6 +707,56 @@ describe('screens render', () => {
     expect(screen.getByText(/without a date, no reminder goes out/i)).toBeInTheDocument();
   });
 
+  it('event settings is where a day becomes fourballs and a shotgun', async () => {
+    // Both live on the event rather than on each draw, so rounds two and three
+    // come out the same shape without the organiser restating anything.
+    get.mockImplementation((path: string) =>
+      path === `/tournaments/${T}`
+        ? Promise.resolve({ ...TOURNAMENT, status: 'REGISTRATION_OPEN' })
+        : path in ROUTES
+          ? Promise.resolve(ROUTES[path])
+          : Promise.reject(new Error(`unexpected GET ${path}`)),
+    );
+
+    show(<TournamentSettingsPage tournamentId={T} />);
+
+    const size = (await screen.findByLabelText(/group size/i)) as HTMLSelectElement;
+    const start = screen.getByLabelText(/^start$/i) as HTMLSelectElement;
+    expect(size.value).toBe('3');
+    expect(start.value).toBe('BLOCKS');
+
+    await userEvent.selectOptions(size, '4');
+    await userEvent.selectOptions(start, 'SHOTGUN');
+    await userEvent.click(screen.getByRole('button', { name: /save changes/i }));
+
+    expect(patch).toHaveBeenCalledWith(
+      `/tournaments/${T}`,
+      expect.objectContaining({ group_size: 4, loop_style: 'SHOTGUN' }),
+    );
+  });
+
+  it('event settings does the shotgun arithmetic the organiser cannot', async () => {
+    // The number that decides whether the day is a real shotgun or a queue: a
+    // tee per group, and a course only has so many.
+    get.mockImplementation((path: string) =>
+      path === `/tournaments/${T}`
+        ? Promise.resolve({ ...TOURNAMENT, status: 'REGISTRATION_OPEN' })
+        : path in ROUTES
+          ? Promise.resolve(ROUTES[path])
+          : Promise.reject(new Error(`unexpected GET ${path}`)),
+    );
+
+    show(<TournamentSettingsPage tournamentId={T} />);
+
+    const start = (await screen.findByLabelText(/^start$/i)) as HTMLSelectElement;
+    await userEvent.selectOptions(start, 'SHOTGUN');
+
+    // The fixture course has nine holes, so a shotgun has nine starting tees —
+    // where blocks would give it three. That difference is the whole feature.
+    expect(screen.getByText(/starts 9 groups at once/i)).toBeInTheDocument();
+    expect(screen.getByText(/27 players in threes/i)).toBeInTheDocument();
+  });
+
   it('the scorecard says a halved hole was halved', async () => {
     show(<ScorecardPage groupId="group-1" />);
 
@@ -744,6 +857,11 @@ describe('screens render', () => {
 
     show(<ScorePage groupId="group-1" />);
 
+    // Score entry opens on the first hole *not* yet played, so reach the tied
+    // one the way a player would — by pressing its chip. Named by the course's
+    // hole number, which is the only name the group would recognise.
+    await userEvent.click(await screen.findByRole('button', { name: /^hole 7/i }));
+
     // This is the one moment the screen asks rather than records, and it used to
     // look like every other card.
     expect(await screen.findByText(/tied on strokes/i)).toBeInTheDocument();
@@ -769,5 +887,122 @@ describe('screens render', () => {
     expect(await screen.findByText('Kim')).toBeInTheDocument();
     // Dave has scored nothing and is still listed, on zero holes.
     expect(screen.getByText('Dave')).toBeInTheDocument();
+  });
+});
+
+describe('knockout', () => {
+  const KO = { ...TOURNAMENT, format: 'KNOCKOUT', status: 'ROUND_COMPLETE' };
+
+  function koRoutes(round: unknown, board?: unknown) {
+    return {
+      ...ROUTES,
+      [`/tournaments/${T}`]: KO,
+      '/rounds/round-1': round,
+      ...(board ? { [`/tournaments/${T}/leaderboard`]: board } : {}),
+    } as Record<string, unknown>;
+  }
+
+  function serve(routes: Record<string, unknown>) {
+    get.mockImplementation((path: string) =>
+      path in routes
+        ? Promise.resolve(routes[path])
+        : Promise.reject(new Error(`unexpected GET ${path}`)),
+    );
+  }
+
+  it('tells a knocked-out player they are out, rather than showing them nothing', async () => {
+    // The whole screen for 48 of a 64-player field. Before knockout existed,
+    // having no group rendered `null` and the page simply forgot about them.
+    const round = {
+      ...(ROUTES['/rounds/round-1'] as { groups: unknown[] }),
+      status: 'COMPLETE',
+      round_number: 2,
+      groups: [
+        {
+          id: 'group-9',
+          round_id: 'round-1',
+          group_number: 1,
+          members: [{ participant_id: 'p-dave' }],
+          holes: LOOP,
+          advancing_participant_id: null,
+          advanced_by: null,
+        },
+      ],
+    };
+    serve(koRoutes(round));
+
+    show(<TournamentPage tournamentId={T} />);
+
+    expect(await screen.findByText(/you're out/i)).toBeInTheDocument();
+    expect(screen.getByText(/didn't go through to round 2/i)).toBeInTheDocument();
+  });
+
+  it('says how a group was decided, in words rather than the stored label', async () => {
+    const round = {
+      ...(ROUTES['/rounds/round-1'] as object),
+      status: 'COMPLETE',
+      groups: [
+        {
+          id: 'group-1',
+          round_id: 'round-1',
+          group_number: 1,
+          members: [{ participant_id: 'p-kim' }, { participant_id: 'p-dave' }],
+          holes: LOOP,
+          advancing_participant_id: 'p-kim',
+          advanced_by: 'countback',
+        },
+      ],
+    };
+    serve(koRoutes(round));
+
+    show(<TournamentPage tournamentId={T} />);
+
+    expect(await screen.findByText(/on countback/i)).toBeInTheDocument();
+    // One group left and it has a winner, so the bracket is over.
+    expect(screen.getByText(/wins the day/i)).toBeInTheDocument();
+  });
+
+  it('ranks the board by how far a player got, and says so', async () => {
+    const board = {
+      tournament_id: T,
+      round_id: null,
+      entries: [
+        {
+          position: 1,
+          participant_id: 'p-kim',
+          display_name: 'Kim',
+          points: 0,
+          total_strokes: 27,
+          holes_played: 6,
+          rounds_survived: 3,
+        },
+        {
+          position: 2,
+          participant_id: 'p-dave',
+          display_name: 'Dave',
+          points: 2,
+          total_strokes: 25,
+          holes_played: 3,
+          rounds_survived: 1,
+        },
+      ],
+    };
+    serve(koRoutes(ROUTES['/rounds/round-1'], board));
+
+    show(<LeaderboardPage tournamentId={T} />);
+
+    expect(await screen.findByRole('columnheader', { name: 'Reached' })).toBeInTheDocument();
+    expect(screen.getByText('Champion')).toBeInTheDocument();
+    expect(screen.getByText('Out in R1')).toBeInTheDocument();
+    // Kim scored fewer points than Dave and is still top — the point of ADR-012.
+    expect(screen.getByText(/ranked by how far a player got/i)).toBeInTheDocument();
+  });
+
+  it('leaves the Reached column off a round-robin board', async () => {
+    show(<LeaderboardPage tournamentId={T} />);
+
+    await screen.findByRole('table');
+    expect(screen.queryByRole('columnheader', { name: 'Reached' })).not.toBeInTheDocument();
+    expect(screen.getByText(/level players are split by fewest total strokes/i)).toBeInTheDocument();
   });
 });
