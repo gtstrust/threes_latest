@@ -94,7 +94,8 @@ export function HomePage() {
       }
     >
       <p className="muted small">
-        {player?.display_name ? player.email : 'Signed in'} · <Link to="/me">Your golf</Link>
+        {player?.display_name ? player.email : 'Signed in'} · <Link to="/me">Your golf</Link> ·{' '}
+        <Link to="/how-it-works">How it works</Link>
       </p>
 
       {live.map((entry) => (
@@ -106,7 +107,10 @@ export function HomePage() {
         {loading && <Loading />}
         <ErrorNote error={error} />
         {!loading && rest.length === 0 && live.length === 0 && (
-          <Empty>Nothing yet. Start a round, or open a link somebody sent you.</Empty>
+          <Empty>
+            Nothing yet. Start a round, or open a link somebody sent you. New to Threes?{' '}
+            <Link to="/how-it-works">How it works</Link>.
+          </Empty>
         )}
         {rest.length > 0 && (
           <ul className="list">

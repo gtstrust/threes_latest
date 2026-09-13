@@ -55,8 +55,11 @@ class Hole(Base, TimestampMixin):
 
     `par` and `stroke_index` are nullable on purpose. Scoring never uses par —
     ADR-007 is decided on strokes alone — so an organiser can enter three hole
-    numbers and start playing. `stroke_index` is here ready for Phase 2 handicaps
-    rather than needing a migration then.
+    numbers and start playing. `stroke_index` is here ready for **Phase 3**
+    handicaps rather than needing a migration then; ADR-013 is what will read it,
+    dealing a player's shots to the hardest holes of their loop. Nullable stays
+    right even so: a handicap event is refused at the draw when a hole in play
+    has no index, which is a louder answer than a column that cannot be empty.
     """
 
     __tablename__ = "holes"

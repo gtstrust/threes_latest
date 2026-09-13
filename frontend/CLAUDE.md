@@ -96,6 +96,38 @@ looks like the app hanging rather than like a bug.
 Only the two leaderboard pages subscribe. Everything else finds out on its own refetch, which is the
 ADR's position, not an omission.
 
+### One route is public, and the guard is now a layout route
+
+`RequireAuth` used to wrap `<Routes>`, so every path in the app was gated — including
+`/join/:code`, whose "only unguarded read" reputation is a *backend* fact about the join preview
+endpoint, not a client one. `/how-it-works` changed that: it is the explainer, it carries no player,
+event or score data, and it has to be readable by somebody who has just been handed an invitation
+and does not yet have an account.
+
+So `App.tsx` now has two top-level routes — the explainer, and a **pathless layout route** whose
+element is `<RequireAuth><Outlet /></RequireAuth>` wrapping everything else. Every existing path is
+untouched inside it. Deliberately *not* a second `<Routes>` under a `path="*"`: descendant routes
+re-base every child path against the parent match, which is a quiet way to break fourteen working
+URLs for one new page.
+
+`src/routes.test.tsx` is the only test that renders `App` rather than a screen, and it exists for
+this: the explainer resolves signed out, and `/t/:id` and `/join/:code` still do not. Both failure
+modes are silent otherwise.
+
+### Help lives beside the screen it explains
+
+`features/help/content.ts` holds every word of the explainer and of the per-screen panels, with no
+JSX — the same split as `format.ts`, and for the same Fast Refresh reason. It also makes the one
+thing here that rots silently testable: a `HelpPanel` links into the walkthrough by slug, and a
+renamed step would still compile, still render, and land the reader on step one with no error
+anywhere. `content.test.ts` checks every link.
+
+`HelpPanel` is a `<details>`, so open/close, the keyboard and the screen-reader announcement are all
+free. **Note it puts its prose in the DOM while closed**, which is why two existing tests moved from
+`getByText` to `getByRole('heading', …)`: the panel on score entry previews the tie-break questions
+in the same words the screen asks them in, so a plain text query now matches twice. Prefer the role
+query on any screen carrying a panel.
+
 ### Auth: a verified token is not a profile row
 
 This is the first thing that goes wrong against this API. A Supabase token proves identity, but the

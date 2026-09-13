@@ -20,6 +20,7 @@
  */
 
 import { render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -53,7 +54,11 @@ const ORIGIN = 'http://localhost:3000';
 
 async function signIn(path: string) {
   window.history.pushState({}, '', path);
-  render(<LoginPage />);
+  render(
+    <MemoryRouter>
+      <LoginPage />
+    </MemoryRouter>,
+  );
   await userEvent.type(screen.getByLabelText('Email'), 'kim@example.com');
   await userEvent.click(screen.getByRole('button', { name: /send me a link/i }));
 }
@@ -61,7 +66,11 @@ async function signIn(path: string) {
 /** Open the disclosure and fill both fields, without submitting. */
 async function openPasswordForm() {
   window.history.pushState({}, '', '/');
-  render(<LoginPage />);
+  render(
+    <MemoryRouter>
+      <LoginPage />
+    </MemoryRouter>,
+  );
   await userEvent.click(screen.getByRole('button', { name: /use a password/i }));
   await userEvent.type(screen.getByLabelText('Email'), 'kim@example.com');
   await userEvent.type(screen.getByLabelText('Password'), 'not-a-real-one');
@@ -99,7 +108,11 @@ describe('requesting a magic link', () => {
 
 describe('signing in with a password', () => {
   it('is offered but not in the way — the link stays the primary action', () => {
-    render(<LoginPage />);
+    render(
+    <MemoryRouter>
+      <LoginPage />
+    </MemoryRouter>,
+  );
 
     expect(screen.getByRole('button', { name: /send me a link/i })).toBeInTheDocument();
     // Behind a disclosure, so the ordinary path is still the obvious one.
@@ -139,7 +152,11 @@ describe('signing in with a password', () => {
     // it is needed, since the alternative is discovering it does not.
     flags.passwordLoginEnabled = false;
 
-    render(<LoginPage />);
+    render(
+    <MemoryRouter>
+      <LoginPage />
+    </MemoryRouter>,
+  );
 
     expect(screen.queryByRole('button', { name: /use a password/i })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /send me a link/i })).toBeInTheDocument();

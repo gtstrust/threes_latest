@@ -61,6 +61,7 @@ const { TournamentSettingsPage } = await import('./tournaments/TournamentSetting
 const { ScorecardPage } = await import('./scoring/ScorecardPage');
 const { ScorePage } = await import('./scoring/ScorePage');
 const { SessionContext } = await import('./auth/session-context');
+const { HowItWorksPage } = await import('./help/HowItWorksPage');
 
 const PLAYER_ID = 'player-kim';
 const T = 'tournament-1';
@@ -865,7 +866,11 @@ describe('screens render', () => {
     // This is the one moment the screen asks rather than records, and it used to
     // look like every other card.
     expect(await screen.findByText(/tied on strokes/i)).toBeInTheDocument();
-    expect(screen.getByText(/who was closest to the pin/i)).toBeInTheDocument();
+    // By role: the help panel on this screen previews the same question in prose,
+    // and it is the heading — the screen actually asking — that this is about.
+    expect(
+      screen.getByRole('heading', { name: /who was closest to the pin/i }),
+    ).toBeInTheDocument();
   });
 
   it('keeps the hole strip pressable, not decorative', async () => {
@@ -1004,5 +1009,67 @@ describe('knockout', () => {
     await screen.findByRole('table');
     expect(screen.queryByRole('columnheader', { name: 'Reached' })).not.toBeInTheDocument();
     expect(screen.getByText(/level players are split by fewest total strokes/i)).toBeInTheDocument();
+  });
+});
+
+/**
+ * The explainer, and the help each screen carries.
+ *
+ * `docs/SCREENS.md` ranks this the highest-risk gap in the app, because it fails
+ * at the worst moment: a guest who has never heard of the format, standing on a
+ * tee, being asked how many strokes they took. So the two assertions that matter
+ * are that the walkthrough opens on the format, and that the tie-break question
+ * is reachable from score entry without leaving score entry.
+ */
+describe('how Threes works', () => {
+  it('opens on the format, which is what nobody arrives knowing', async () => {
+    show(<HowItWorksPage />);
+
+    expect(await screen.findByText('Three holes, not eighteen')).toBeInTheDocument();
+    expect(screen.getByText(/step 1 of/i)).toBeInTheDocument();
+    // Nothing to go back to yet.
+    expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
+  });
+
+  it('steps forward and back', async () => {
+    show(<HowItWorksPage />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Next' }));
+    expect(await screen.findByText('Your group is your match')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(await screen.findByText('Three holes, not eighteen')).toBeInTheDocument();
+  });
+
+  it('offers the organiser track only at the end of the player one', async () => {
+    show(<HowItWorksPage />);
+
+    expect(screen.queryByRole('button', { name: /how to run one/i })).not.toBeInTheDocument();
+
+    // Six player steps, so five taps reaches the last one.
+    for (let step = 0; step < 5; step += 1) {
+      await userEvent.click(await screen.findByRole('button', { name: 'Next' }));
+    }
+
+    expect(await screen.findByText('More than one round')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /how to run one/i }));
+    expect(await screen.findByText('Setting up an event')).toBeInTheDocument();
+  });
+
+  it('answers the tie-break question on score entry, without leaving it', async () => {
+    show(<ScorePage groupId="group-1" />);
+
+    // Closed until asked for: the panel must not push the steppers down the
+    // screen for the group who already know what they are doing.
+    const summary = await screen.findByText('Entering scores');
+    // A closed `<details>` keeps its content in the DOM, so this is about what
+    // the group can *see* — visibility, not presence.
+    expect(screen.getByText(/if two of you tie on strokes/i)).not.toBeVisible();
+
+    await userEvent.click(summary);
+
+    expect(screen.getByText(/if two of you tie on strokes/i)).toBeVisible();
+    // Still on score entry — the panel offers the walkthrough, it does not go.
+    expect(screen.getByRole('heading', { name: /Group/ })).toBeInTheDocument();
   });
 });

@@ -17,6 +17,7 @@ import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { Card, Empty, ErrorNote, Loading, Page } from '../../components/ui';
+import { HelpPanel } from '../help/HelpPanel';
 import { reachedLabel } from '../tournaments/knockout';
 import { keys, useLeaderboard, useRoundLeaderboard, useRounds } from '../../lib/queries';
 import { subscribeToTournament } from '../../lib/realtime';
@@ -60,6 +61,8 @@ export function LeaderboardPage({ tournamentId }: { tournamentId: UUID }) {
         ) : undefined
       }
     >
+      <HelpPanel topic="board" />
+
       {rounds.data && rounds.data.length > 0 && (
         <nav className="switcher" aria-label="Which board">
           <button

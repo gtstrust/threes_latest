@@ -27,7 +27,9 @@ and `SECURITY.md` in the structure below are still target layout.
 
 **The ADRs live in this file**, under "Architecture Decisions" below — not in `docs/`. ADR-001
 through ADR-012 are cited all over the codebase, tests and commit messages, and this is the only
-place they resolve to.
+place they resolve to. **ADR-013 is cited by nothing yet** — it records the decided shape of Phase 3
+handicaps rather than describing code that exists, and is written down so the answer is ready when
+an organiser first asks for it.
 
 See [`backend/CLAUDE.md`](./backend/CLAUDE.md) for backend-specific commands, the auth/JWT model,
 and implementation gotchas (e.g. new models must be registered in `app/models/__init__.py` or
@@ -92,7 +94,7 @@ threes/
 │       ├── deploy-backend.yml   # manual (workflow_dispatch) Fly deploy
 │       ├── reminder-sweep.yml   # manual; the hourly cron is commented out
 │       └── claude.yml           claude-code-review.yml
-├── CLAUDE.md                 # This file — including all twelve ADRs
+├── CLAUDE.md                 # This file — including all thirteen ADRs
 ├── ROADMAP.md
 └── THREES_STRATEGY.md
 ```
@@ -236,7 +238,7 @@ rules depending on how complete the data was — worse than honest imprecision. 
 already exist: several rounds with re-randomised groups spread the luck, and with integer points
 over nine holes the tie-break separates far fewer players than it looks like it will.
 
-**Forward compatibility with handicaps (Phase 3):** because the client submits only raw strokes (ADR-002) and points are always derived server-side, net scoring can be layered on later without changing the score-entry path or re-migrating stored scores.
+**Forward compatibility with handicaps (Phase 3):** because the client submits only raw strokes (ADR-002) and points are always derived server-side, net scoring can be layered on later without changing the score-entry path or re-migrating stored scores. **ADR-013 collects that promise** — it runs this same cascade on net strokes, adding one optional argument and changing no level of it.
 
 ### ADR-008: Play statuses are owned by the round endpoints
 `ROUND_IN_PROGRESS` and `ROUND_COMPLETE` cannot be set through `POST /tournaments/{id}/status`. Drawing a round and starting play are one action (`POST /tournaments/{id}/rounds`), as are finishing a round and ending it (`POST /rounds/{round_id}/complete`).
@@ -393,6 +395,134 @@ sort key for every round robin and therefore no change to one; on the wire it is
 than 0 there, because 0 would read as "went out immediately".
 
 
+### ADR-013: Handicaps are pro-rated to the loop, and the cascade runs on net — Phase 3
+
+Deferred, and **designed rather than built** — the phase boundary in `ROADMAP.md` still holds and
+nothing below is implemented. This ADR exists because the answer is needed the first time an
+organiser asks, and because the shape of it constrains things that *are* built: what `stroke_index`
+is for, why `points` is integer-only, and why ADR-002 keeps raw strokes on the wire.
+
+A player's **playing handicap** is an 18-hole figure. Pro-rate it to the loop —
+`round_half_up(handicap × holes_in_loop ÷ 18)` — to get the **shots** they receive over those three
+holes. Order the loop's holes by `stroke_index` ascending and deal the shots from the hardest: every
+hole gets `shots ÷ len(loop)`, and the remainder goes to the hardest holes first. A player's **net
+strokes** on a hole are their gross strokes minus the shots they received there. ADR-007's cascade
+then runs **unchanged, on net**: fewest net strokes, then closest to the pin, then longest drive on
+the fairway, each contested only among the players tied on net.
+
+```
+Loop = holes 7 (SI 3), 8 (SI 14), 9 (SI 11)     ->  difficulty order: 7, 9, 8
+
+hcp  4  ->  round(4 x 3 / 18) = 1 shot   ->  7:1  9:0  8:0
+hcp 22  ->  round(22 x 3 / 18) = 4 shots ->  7:2  9:1  8:1
+
+Hole 7    gross   shots   net
+  A         5       1       4
+  B         8       2       6      -> A wins the hole, decided_by = 'strokes'
+```
+
+Integer arithmetic, no floats: `shots = (handicap * holes_in_loop * 2 + 18) // 36`.
+
+**The cascade is not extended, and `DecidedBy` gains no member.** Level 1 is still "fewest strokes";
+a handicap changes what a stroke counts as, not what the cascade is. That is the whole reason to
+express this as net strokes rather than as a new tie-break level — the four labels stand, the three
+check constraints on `hole_results` stand, and no `ALTER TYPE` is needed. **Points do not change
+either**: 1 for the hole, 0 otherwise, no halves. `hole_scores` carries `CHECK (points IN (0, 1))`,
+so a scheme scoring anything else would need a migration, and this one does not.
+
+**Full allocation, not the matchplay difference.** The obvious alternative is the convention a
+fourball actually plays to: the lowest handicap in the group goes off scratch and everyone else
+receives the difference. It is truer to the game and keeps net close to gross. It breaks on the
+leaderboard. Points are won *within* a group, so the primary sort survives either way — but the
+tie-break is fewest total strokes **across the whole field**, comparing players who never met. Under
+the difference model a 22-handicapper drawn against a scratch player receives four shots and the
+same player drawn against three other 22s receives none: same player, same round, two different
+stroke totals, one board. ADR-007 already accepts one imprecision in that tie-break; this would add
+a second, structural rather than incidental, and invisible to the field. Full allocation gives a
+player the same net total whoever they were drawn with, which is the property a cross-group board
+needs.
+
+**Allocating by `stroke_index`, having refused to depend on `par`.** ADR-007 rejected a
+strokes-to-par tie-break because `par` is nullable, so the rule would "either break for courses that
+never entered par or silently switch rules depending on how complete the data was". That argument is
+about a rule applying to *every* event. This one applies only where an organiser has explicitly
+turned handicaps on, and it fails **loudly and early**: the draw refuses (409) when any hole in play
+has no stroke index, naming them, before anyone tees off. Nothing silently switches rules and no
+scratch event is touched. The alternative — spreading shots evenly across the loop and ignoring
+difficulty — needs no data the organiser must enter, but puts a lone shot on an arbitrary hole,
+which every golfer in the group will notice.
+
+**The draw refuses a participant with no handicap, too**, rather than defaulting them to 0. A
+missing number almost always means "not entered yet", and 0 is the *hardest* handicap there is, so
+guessing silently penalises exactly the player nobody remembered to ask. Handicaps freeze when the
+field does — editable until `ROUND_IN_PROGRESS`, and fixed once play starts, for the same reason the
+field is.
+
+**Where the numbers live.** `tournaments.handicap_enabled` is the per-event opt-in, non-null with a
+server default of false, exactly like `group_size` and `loop_style`.
+`tournament_participants.playing_handicap` is nullable and per event — a playing handicap differs
+between events, and a Virtual Player has no `players` row to carry one. **`hole_scores` gains
+`strokes_received`**, the shots that player got on that hole, non-null defaulting to 0.
+
+That column stores the *judgement*, not the net. Net is `strokes - strokes_received` — exact,
+always, by arithmetic — so storing net as well would be two columns free to disagree, which is the
+failure ADR-009 already warns about across its two tables. But the allocation itself *is* stored
+rather than recomputed, for ADR-009's reason verbatim: an audit trail recalculated on demand "would
+only ever show what today's code thinks, not what the group was told on the day". And **0 everywhere
+on a scratch event is the proof that nothing moved** — the same device as `rounds_survived = 0` for
+a round robin, and the null advancement columns on a round-robin group. A constant makes "the
+existing behaviour is unchanged" provable rather than argued.
+
+**Optional everywhere, and off by default — for fun rounds as much as tournaments.** Handicaps are
+never implied by anything: not by a format, not by a course having stroke indices, not by one
+participant having a handicap recorded. `handicap_enabled` is false unless somebody sets it, and a
+scratch event is bit-for-bit the event it is today. A fun round is a `tournaments` row
+(`kind = FUN_ROUND`), so it inherits the column the same way it inherits the draw, the cascade and
+the leaderboard — and `FunRoundService.start` delegates to `RoundService.draw_round`, so both
+draw-time refusals apply to a fun round without a second implementation.
+
+**Inheriting the column is not the same as being able to set it**, and this is the part easy to get
+wrong: `FunRoundService.create` narrows its payload by hand to `name` and `course_id`, so a fun
+round would carry `handicap_enabled` and have no way on earth to turn it on. `FunRoundCreate` has to
+plumb it through explicitly, as does the host's setup screen.
+
+**Who types the number differs between the two**, because the field is assembled differently. A
+tournament organiser owns the field and sets each participant's handicap on it. A fun round has no
+organiser managing anyone — mates join themselves by link — so a player supplies their own handicap
+when they join, and the host supplies one for each Virtual Player they add. Same column, two doors.
+
+**A fun round checks its stroke indices at setup, not at the draw.** `create` already validates the
+hole selection immediately rather than deferring it, because deferring "would surface it at the
+first tee, with the group already assembled". The identical argument covers a missing stroke index:
+four mates who ticked handicaps and walked to the tee should not discover there that the course has
+no indices. The draw's refusal stays as the backstop — it is the same check — but for a fun round
+the honest place to fail is the setup form.
+
+**Nothing about score entry changes**, which is ADR-002's promise being collected rather than a
+convenience. The client goes on submitting raw strokes and only raw strokes; the server allocates,
+decides and stores. `rank_leaderboard` and `decide_advancement` need no edit at all — both rank on
+total strokes, and feeding them net is a substitution one layer down in the aggregate.
+
+**Plus handicaps are out of scope, deliberately.** A +2 player pro-rates to `round(-0.33) = 0` shots
+over three holes, so the column would carry a sign that never changes a result.
+`playing_handicap` is constrained `BETWEEN 0 AND 54`.
+
+**Net may be zero or negative**, and that is legal — a 3 with three shots is a net 0. The engine
+goes on rejecting a *gross* stroke count below 1 and places no floor on net.
+
+**The costs, accepted.** ADR-007's noted tie-break imprecision widens slightly: net totals are
+compared across loops of differing difficulty *and* differing allocation, though the second part is
+self-correcting, since shots are dealt by each loop's own indices. A handicap event depends on data
+an organiser must enter, which nothing else on the platform does — contained by the draw's refusal
+and by leaving scratch events alone. And every screen showing a stroke now shows two numbers: gross
+is what the group reported and will argue about, net is what decided it, and neither silently
+replaces the other.
+
+**The prerequisite, easy to miss.** `stroke_index` has been accepted by `PUT /courses/{id}/holes`
+since migration `0002` and is **null in every row**, because no screen has ever sent one — the
+course setup posts bare hole numbers. A course hole editor (`docs/SCREENS.md` #4) is therefore a
+hard dependency of this ADR, not a nicety alongside it.
+
 ## Coding Conventions
 
 ### Python (Backend)
@@ -471,9 +601,12 @@ VITE_API_BASE_URL=http://localhost:8000
   "Royal Melbourne" and "royal melbourne" can't both exist. Readable by anyone authenticated,
   editable only by whoever created it.
 - **Hole**: One hole of a course — `hole_number`, plus optional `par` and `stroke_index`. Both are
-  optional because scoring never uses par (ADR-007 is strokes alone), so an organiser can enter
-  three hole numbers and start. `stroke_index` is present ready for Phase 3 handicaps. A course only
-  needs the holes actually being played — a 3-hole loop needs 3, not 18.
+  optional because scoring never uses either today (ADR-007 is strokes alone), so an organiser can
+  enter three hole numbers and start. `stroke_index` is present ready for Phase 3 handicaps, where
+  it stops being optional: ADR-013 deals shots by it, so a handicap event whose holes lack one is
+  refused at the draw. **Nothing populates it yet** — the course setup posts bare hole numbers, so
+  every stored `stroke_index` is null. A course only needs the holes actually being played — a
+  3-hole loop needs 3, not 18.
 - **Round**: One stage of a tournament — a draw of groups all playing simultaneously. Carries its own
   status (`PENDING` / `IN_PROGRESS` / `COMPLETE`), distinct from the tournament's, because a
   tournament runs several rounds and its single status can only describe the current one.
@@ -521,9 +654,25 @@ VITE_API_BASE_URL=http://localhost:8000
 - **Longest Drive on Fairway**: Tie-break level 3, asked on the same terms as CTP: only of the players
   tied on strokes. A drive that finished in the rough is not eligible, however long. Not a standalone
   competition in MVP.
-- **Leaderboard Tie-break**: Level players are separated by fewest total strokes across the loop.
-  (This replaces the earlier "countback on the hardest hole" rule, which needed a per-hole difficulty
-  ranking the organiser would have had to enter.)
+- **Leaderboard Tie-break**: Level players are separated by fewest total strokes across the loop —
+  **net strokes** where handicaps apply (ADR-013), gross everywhere else. (This replaces the earlier
+  "countback on the hardest hole" rule, which needed a per-hole difficulty ranking the organiser
+  would have had to enter.)
+- **Playing Handicap**: A per-event allowance for one participant —
+  `tournament_participants.playing_handicap`, 0–54, Phase 3 (ADR-013). Per *event* rather than per
+  player because it can differ between them, and because a Virtual Player has no `players` row to
+  carry one. Editable until `ROUND_IN_PROGRESS`, frozen with the field thereafter.
+- **Shots Received**: How many strokes a player's handicap gave them on one hole —
+  `hole_scores.strokes_received`, defaulting to 0. Pro-rated from the playing handicap to the loop,
+  then dealt to the loop's holes hardest-first by `stroke_index` (ADR-013). Stored rather than
+  recomputed, for ADR-009's reason: a shot allowance is a verdict about a player, and an audit trail
+  recalculated later records only what today's code thinks. **0 on every row of a scratch event**,
+  which is what makes it provable that nothing about one changed.
+- **Net Strokes**: Gross strokes minus shots received. Derived, never stored — the arithmetic is
+  exact, and a second column would be free to disagree with the first. What ADR-007's cascade
+  compares on a handicap event, and what the leaderboard and ADR-012's level 2 rank on. Gross is
+  still reported alongside it everywhere a stroke appears: gross is what the group counted, net is
+  what decided it. Net may be zero or negative; a *gross* count below 1 is still rejected.
 - **Fun Round**: A casual, non-tournament round between friends — **built** (Phase 2). Underneath it is a `tournaments` row with `kind = FUN_ROUND`, which is why it gets the draw, scoring and leaderboard for free. The tournament-management routes hide those rows behind a **404** (`reject_fun_round`), so the two never leak into each other's screens.
 - **Participant**: Someone playing in a tournament — the identity groups and scores foreign-key to,
   never a Player directly. That indirection is what lets a Virtual Player be grouped and scored like
@@ -572,4 +721,5 @@ VITE_API_BASE_URL=http://localhost:8000
   competitions, social, gamification, private realtime channels, and the commercial build — Stripe,
   club/corporate accounts, sponsors. Longest drive and closest to pin are *captured* in MVP because
   ADR-007 needs them to break tied holes; what is deferred is treating them as competitions in their
-  own right.
+  own right. Handicaps are deferred but no longer undecided — **ADR-013 settles the rule**; what is
+  Phase 3 is building it.
