@@ -186,6 +186,7 @@ export function useCreateTournament() {
       // never announced. There is no PATCH for it.
       format?: TournamentFormat;
       scheduled_at?: string;
+      handicap_enabled?: boolean;
     }) => api.post<Tournament>('/tournaments', body),
     onSuccess: () => void client.invalidateQueries({ queryKey: keys.organising }),
   });
@@ -208,6 +209,7 @@ export function useUpdateTournament(id: UUID) {
       // size or a start style, and the API answers 422 rather than clearing them.
       group_size?: GroupSize;
       loop_style?: LoopStyle;
+      handicap_enabled?: boolean;
     }) => api.patch<Tournament>(`/tournaments/${id}`, body),
     onSuccess: () => void client.invalidateQueries({ queryKey: keys.tournament(id) }),
   });
@@ -243,6 +245,30 @@ export function useJoinTournament(id: UUID) {
       void client.invalidateQueries({ queryKey: keys.field(id) });
       void client.invalidateQueries({ queryKey: keys.playing });
     },
+  });
+}
+
+/**
+ * Set or clear a player's handicap for this event (ADR-013).
+ *
+ * The only editable thing about a participant, and the reason PATCH exists on
+ * that route at all. Refused once play starts: shots are dealt from this number,
+ * so changing it mid-round would re-decide holes already announced.
+ */
+export function useSetHandicap(id: UUID) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      participantId,
+      playing_handicap,
+    }: {
+      participantId: UUID;
+      playing_handicap: number | null;
+    }) =>
+      api.patch<Participant>(`/tournaments/${id}/participants/${participantId}`, {
+        playing_handicap,
+      }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: keys.field(id) }),
   });
 }
 
@@ -314,7 +340,10 @@ export function useUpsertHoles() {
       holes,
     }: {
       courseId: UUID;
-      holes: { hole_number: number; par?: number | null }[];
+      // `stroke_index` has been accepted by this endpoint since the holes table
+      // existed and was never sent, which is why every stored one is null. It is
+      // required for a handicap event (ADR-013) and optional for every other.
+      holes: { hole_number: number; par?: number | null; stroke_index?: number | null }[];
     }) => api.put(`/courses/${courseId}/holes`, { holes }),
     onSuccess: (_data, { courseId }) =>
       void client.invalidateQueries({ queryKey: keys.course(courseId) }),

@@ -30,6 +30,7 @@ import {
   useRound,
   useRounds,
   useSendReminder,
+  useSetHandicap,
   useSetStatus,
   useTournament,
 } from '../../lib/queries';
@@ -214,7 +215,20 @@ export function TournamentPage({ tournamentId }: { tournamentId: UUID }) {
               <span>
                 {participant.display_name}
                 {participant.is_virtual && <span className="muted small"> · no account</span>}
+                {event.handicap_enabled && participant.playing_handicap === null && (
+                  // Said here rather than only at the draw: the organiser is
+                  // looking at the field, and this is the row they have to fix.
+                  <span className="muted small"> · no handicap</span>
+                )}
               </span>
+              {event.handicap_enabled && isOrganiser && FIELD_IS_EDITABLE.includes(status) && (
+                <HandicapField
+                  tournamentId={event.id}
+                  participantId={participant.id}
+                  name={participant.display_name}
+                  value={participant.playing_handicap}
+                />
+              )}
               {isOrganiser && FIELD_IS_EDITABLE.includes(status) && (
                 <button
                   type="button"
@@ -483,4 +497,48 @@ function MyGroup({
 /** A participant's name, for the few places outside GroupList that need one. */
 function nameOf(field: Participant[], id: UUID): string {
   return field.find((participant) => participant.id === id)?.display_name ?? 'The winner';
+}
+
+/**
+ * One player's handicap, saved when the organiser leaves the box.
+ *
+ * On blur rather than on a Save button, because this is a column of numbers
+ * being typed down a list — a button per row would be a tap per row, and an
+ * organiser doing sixteen of them on a phone would feel every one.
+ *
+ * Empty clears it back to null, which the draw then refuses. That is the
+ * intended way out of a number typed into the wrong row: a handicap the field
+ * screen would not let you delete could only be fixed by deleting the player.
+ */
+function HandicapField({
+  tournamentId,
+  participantId,
+  name,
+  value,
+}: {
+  tournamentId: UUID;
+  participantId: UUID;
+  name: string;
+  value: number | null;
+}) {
+  const save = useSetHandicap(tournamentId);
+  const [typed, setTyped] = useState(value === null ? '' : String(value));
+
+  return (
+    <input
+      type="number"
+      inputMode="numeric"
+      min={0}
+      max={54}
+      className="handicap"
+      aria-label={`Handicap for ${name}`}
+      placeholder="hcp"
+      value={typed}
+      onChange={(event) => setTyped(event.target.value)}
+      onBlur={() => {
+        const next = typed.trim() === '' ? null : Number(typed);
+        if (next !== value) save.mutate({ participantId, playing_handicap: next });
+      }}
+    />
+  );
 }

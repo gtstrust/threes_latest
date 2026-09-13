@@ -48,6 +48,11 @@ export function useCoursePicker({ defaultHoles = DEFAULT_HOLES } = {}): CoursePi
   const [courseId, setCourseId] = useState('');
   const [newCourseName, setNewCourseName] = useState('');
   const [holeCount, setHoleCount] = useState(defaultHoles);
+  // Hole number -> stroke index, as typed. Empty means "not entered", which is
+  // what every hole in the product looks like today and is still legal: only a
+  // handicap event needs these, and its draw refuses without them rather than
+  // this form insisting up front.
+  const [strokeIndexes, setStrokeIndexes] = useState<Record<number, string>>({});
 
   const makingCourse = courseId === 'new';
   const chosen = courses.data?.find((course) => course.id === courseId);
@@ -71,7 +76,10 @@ export function useCoursePicker({ defaultHoles = DEFAULT_HOLES } = {}): CoursePi
     // The endpoint takes the whole set of holes being played, not a delta, and
     // adds rather than replaces — so sending 1..n is safe on a course that
     // already has some.
-    const holes = upTo(holeCount).map((hole_number) => ({ hole_number }));
+    const holes = upTo(holeCount).map((hole_number) => {
+      const typed = strokeIndexes[hole_number]?.trim();
+      return typed ? { hole_number, stroke_index: Number(typed) } : { hole_number };
+    });
 
     if (makingCourse) {
       const course = await createCourse.mutateAsync({ name: newCourseName });
@@ -98,6 +106,35 @@ export function useCoursePicker({ defaultHoles = DEFAULT_HOLES } = {}): CoursePi
       <p className="muted small">
         Only the holes being played need to exist. Par is optional — scoring never uses it.
       </p>
+      {holeCount > 0 && (
+        <details className="stroke-indexes">
+          <summary>Stroke indexes — only needed for handicaps</summary>
+          <p className="muted small">
+            The difficulty ranking a club prints on its card, 1 for the hardest hole. Shots are
+            dealt from it, hardest hole first, so a handicap event can&rsquo;t be drawn until every
+            hole being played has one.
+          </p>
+          <ul className="index-grid">
+            {upTo(holeCount).map((hole) => (
+              <li key={hole}>
+                <label htmlFor={`si-${hole}`}>{hole}</label>
+                <input
+                  id={`si-${hole}`}
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={18}
+                  aria-label={`Stroke index for hole ${hole}`}
+                  value={strokeIndexes[hole] ?? ''}
+                  onChange={(event) =>
+                    setStrokeIndexes((previous) => ({ ...previous, [hole]: event.target.value }))
+                  }
+                />
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </>
   );
 

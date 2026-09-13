@@ -937,3 +937,79 @@ select {
   margin: 0 0 0.9rem;
   color: var(--green);
 }
+
+/* --- Handicaps (ADR-013) ------------------------------------------------ */
+
+/*
+ * Stroke indexes, entered per hole when a course is set up. A grid rather than a
+ * list because eighteen labelled rows is a scroll, and these are two-character
+ * numbers being typed in sequence — the thumb wants them close together.
+ */
+.index-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(4.5rem, 1fr));
+  gap: 0.5rem;
+  list-style: none;
+  padding: 0;
+  margin: 0.75rem 0 0;
+}
+
+.index-grid li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.index-grid label {
+  min-width: 1.4rem;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-align: right;
+}
+
+.index-grid input {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0.4rem;
+  text-align: center;
+}
+
+.stroke-indexes summary {
+  min-height: 3rem;
+  display: flex;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* The organiser's column of handicaps down the field list. Narrow on purpose —
+   it sits between a name and a Remove button, and must not crowd either. */
+.handicap {
+  width: 4.5rem;
+  margin: 0;
+  padding: 0.4rem;
+  text-align: center;
+}
+
+/*
+ * Shots received, on the score-entry row. Dots rather than a number because a
+ * player glancing at their own line wants to know *whether* they get one here
+ * more than how many, and at most three fit a three-hole loop.
+ */
+.shots {
+  margin-left: 0.4rem;
+  color: var(--green);
+  font-size: 0.9rem;
+  letter-spacing: 0.1em;
+}
+
+/* Net, under the gross figure in a scorecard cell. Gross stays the subject —
+   it is what the group wrote down — so this is small and set below it. */
+.net {
+  display: block;
+  line-height: 1.1;
+}

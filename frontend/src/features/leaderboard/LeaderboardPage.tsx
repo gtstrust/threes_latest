@@ -108,6 +108,11 @@ export function Board({ board }: { board: Leaderboard }) {
   // leave the key absent, and undefined means the same thing here — this board
   // is not a knockout's, so the column does not belong on it.
   const knockout = board.entries.some((entry) => entry.rounds_survived != null);
+  // Same shape, same reasoning (ADR-013): a scratch event sends null for every
+  // player, so the column is absent rather than a row of numbers repeating the
+  // one beside it. It is a property of the event, so any entry carrying one
+  // means the whole board has one.
+  const handicapped = board.entries.some((entry) => entry.net_strokes != null);
   const roundsPlayed = Math.max(
     0,
     ...board.entries.map((entry) => entry.rounds_survived ?? 0),
@@ -123,6 +128,7 @@ export function Board({ board }: { board: Leaderboard }) {
             {knockout && <th scope="col">Reached</th>}
             <th scope="col">Pts</th>
             <th scope="col">Strokes</th>
+            {handicapped && <th scope="col">Net</th>}
             <th scope="col">Holes</th>
           </tr>
         </thead>
@@ -141,6 +147,14 @@ export function Board({ board }: { board: Leaderboard }) {
                 <strong>{entry.points}</strong>
               </td>
               <td className="muted">{entry.total_strokes}</td>
+              {/* Net is what the board was ranked on, so it carries the weight
+                  and gross sits muted beside it — the opposite emphasis to the
+                  scorecard, where the group's own number is the subject. */}
+              {handicapped && (
+                <td>
+                  <strong>{entry.net_strokes}</strong>
+                </td>
+              )}
               {/* Everyone drawn is listed, on nothing until they score — a board
                   missing half the field early in the day reads as a bug. */}
               <td className="muted">{entry.holes_played}</td>
@@ -150,8 +164,12 @@ export function Board({ board }: { board: Leaderboard }) {
       </table>
       <p className="muted small">
         {knockout
-          ? 'Ranked by how far a player got, then points, then fewest total strokes.'
-          : 'Level players are split by fewest total strokes.'}
+          ? `Ranked by how far a player got, then points, then fewest ${
+              handicapped ? 'net strokes' : 'total strokes'
+            }.`
+          : `Level players are split by fewest ${
+              handicapped ? 'net strokes — gross less the shots received' : 'total strokes'
+            }.`}
       </p>
     </Card>
   );

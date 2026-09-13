@@ -115,6 +115,14 @@ export function ScorecardPage({ groupId, backTo }: { groupId: UUID; backTo?: Bac
                       return (
                         <td key={hole.key}>
                           <span className={won ? 'took' : undefined}>{score?.strokes ?? '—'}</span>
+                          {score && score.strokes_received > 0 && (
+                            // Gross stays the big number — it is what the group
+                            // wrote down — with the net that decided the hole
+                            // under it rather than replacing it.
+                            <span className="net muted small">
+                              {score.strokes - score.strokes_received}
+                            </span>
+                          )}
                         </td>
                       );
                     })}

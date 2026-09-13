@@ -28,6 +28,7 @@ export function NewTournamentPage() {
   // Create-only: after round one a knockout has stored verdicts and a round
   // robin has none, so there is no coherent way to switch later (ADR-012).
   const [format, setFormat] = useState<TournamentFormat>('ROUND_ROBIN');
+  const [handicaps, setHandicaps] = useState(false);
   const [failed, setFailed] = useState<unknown>(null);
 
   async function onSubmit(event: FormEvent) {
@@ -42,6 +43,9 @@ export function NewTournamentPage() {
         // Sent only when it is not the default, so a round robin's request body
         // is exactly what it always was.
         ...(format === 'KNOCKOUT' ? { format } : {}),
+        // Same rule as the format above: sent only when it is not the default, so
+        // a scratch event's request body is exactly what it always was.
+        ...(handicaps ? { handicap_enabled: true } : {}),
       });
       void navigate(`/t/${tournament.id}`);
     } catch (error) {
@@ -114,6 +118,22 @@ export function NewTournamentPage() {
               Knockout — each group's winner goes through. Everyone else is done.
             </label>
           </fieldset>
+          <label htmlFor="handicaps">
+            <input
+              id="handicaps"
+              type="checkbox"
+              checked={handicaps}
+              onChange={(event) => setHandicaps(event.target.checked)}
+            />{' '}
+            Handicaps — holes are decided on net strokes, not gross.
+          </label>
+          {handicaps && (
+            <p className="muted small">
+              Every player will need a handicap, and every hole being played will need a stroke
+              index. The round won&rsquo;t draw until they do.
+            </p>
+          )}
+
           {format === 'KNOCKOUT' && bracket && <p className="muted small">{bracket}</p>}
           {format === 'KNOCKOUT' && !bracket && (
             <p className="muted small">

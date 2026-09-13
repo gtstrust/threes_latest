@@ -74,9 +74,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_constraint(
-        "ck_hole_scores_strokes_received_positive", "hole_scores", type_="check"
-    )
+    op.drop_constraint("ck_hole_scores_strokes_received_positive", "hole_scores", type_="check")
     op.drop_column("hole_scores", "strokes_received")
     op.drop_constraint(
         "ck_participants_playing_handicap_range", "tournament_participants", type_="check"

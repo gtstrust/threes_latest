@@ -178,8 +178,9 @@ and calls `len()`; ADR-009 stores points precisely so this read path stays a rea
 Two modules are deliberately pure — synchronous, no session, no I/O, plain data in and out — so
 the platform's most critical logic is testable without fixtures:
 
-- `services/scoring.py` — the ADR-007 cascade (`score_hole`), `rank_leaderboard`, and the
-  ADR-012 knockout cascade (`decide_advancement`).
+- `services/scoring.py` — the ADR-007 cascade (`score_hole`), `rank_leaderboard`, the ADR-012
+  knockout cascade (`decide_advancement`), and the ADR-013 handicap allocator (`shots_for_loop` /
+  `allocate_shots`).
 - `services/grouping.py` — `group_sizes` / `build_groups` for the draw (ADR-004), and
   `build_loops` / `build_shotgun_loops` / `plan_loops` / `allocate_loops` for the loops
   (ADR-011).
@@ -228,6 +229,19 @@ Some consequences worth knowing before changing them:
   hole number — the caller never has to express "17, 18, 1".
 
 ### Scoring: the two tables, and one deliberate import
+
+`hole_scores` gained a third column with ADR-013: `strokes_received`, the shots a handicap dealt on
+that hole. **Net is never stored** — it is `strokes - strokes_received`, exact by arithmetic, and a
+second column holding the same fact is a second column free to disagree. The allocation itself *is*
+stored, for ADR-009's reason. It defaults to 0, which is what makes a scratch event provably
+unchanged, and `ScoreTotals.net_strokes` is how net reaches the leaderboard and the knockout cascade
+without either ranking function being edited.
+
+Two traps if you touch this. **`_tied_on_strokes` must be computed on net** — it is the list the
+client asks the closest-to-the-pin question of, so on gross a net tie tells the group nobody could be
+separated and the question is never asked. And `_totals_query` is the only aggregate in the codebase:
+adding a term there reaches the leaderboard, advancement *and* player stats at once, which is why
+stats deliberately read `.strokes` rather than `.net_strokes`.
 
 **`hole_scores` (reported) and `hole_results` (derived) are split for the reasons in ADR-009** —
 read that before changing either. What matters when working in this code: both are always written
