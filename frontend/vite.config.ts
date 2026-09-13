@@ -52,7 +52,7 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       // Precache the shell only. Deliberately no runtime caching of API
-      // responses: ADR-005 defers offline score sync to Phase 2, and a service
+      // responses: ADR-005 defers offline score sync to Phase 3, and a service
       // worker quietly serving a stale leaderboard would be worse than an honest
       // error — a player would trust a board that had stopped moving.
       workbox: {

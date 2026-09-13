@@ -22,8 +22,8 @@ once already:
   is the runbook. Note that the backend is live — a bad migration is a production problem now, not
   a local one.
 
-Within `docs/`, only `DEPLOYMENT.md` is written — `ARCHITECTURE.md`, `API.md` and `SECURITY.md` in
-the structure below are still target layout.
+Within `docs/`, only `DEPLOYMENT.md` and `SCREENS.md` are written — `ARCHITECTURE.md`, `API.md`
+and `SECURITY.md` in the structure below are still target layout.
 
 **The ADRs live in this file**, under "Architecture Decisions" below — not in `docs/`. ADR-001
 through ADR-012 are cited all over the codebase, tests and commit messages, and this is the only
@@ -31,7 +31,9 @@ place they resolve to.
 
 See [`backend/CLAUDE.md`](./backend/CLAUDE.md) for backend-specific commands, the auth/JWT model,
 and implementation gotchas (e.g. new models must be registered in `app/models/__init__.py` or
-Alembic autogenerate silently no-ops).
+Alembic autogenerate silently no-ops), and [`frontend/CLAUDE.md`](./frontend/CLAUDE.md) for the
+client's — the query-key/realtime invalidation contract, the profile-provisioning gate, and the
+tsconfig settings that reject valid-looking code.
 
 ## Repository Structure
 
@@ -45,7 +47,7 @@ threes/
 │   │   │   ├── groups.py         scores.py       leaderboard.py
 │   │   │   ├── fun_rounds.py     join.py         # Phase 2
 │   │   │   └── internal.py       # cron-only, X-Cron-Key auth
-│   │   ├── core/             # config.py, db.py, deps.py, http.py, security.py
+│   │   ├── core/             # config.py, db.py, deps.py, errors.py, http.py, security.py
 │   │   ├── models/           # SQLAlchemy ORM — 12 tables across 8 modules
 │   │   ├── schemas/          # Pydantic request/response schemas
 │   │   ├── services/         # Business logic layer
@@ -55,6 +57,7 @@ threes/
 │   │   │   ├── tournament.py     # Tournament state machine
 │   │   │   ├── grouping.py       # Draw: group sizes + shotgun loops (pure)
 │   │   │   ├── round.py          # Round lifecycle — draw + field + course
+│   │   │   ├── advancement.py    # ADR-012 knockout verdicts, written at complete_round
 │   │   │   ├── realtime.py       # ADR-010 broadcast (NullNotifier by default)
 │   │   │   ├── course.py         participant.py  player.py
 │   │   │   └── fun_round.py      join_code.py    reminders.py  mail.py  stats.py
@@ -62,7 +65,7 @@ threes/
 │   │   └── main.py           # FastAPI app entry point
 │   ├── migrations/           # Alembic migrations
 │   ├── scripts/              # dev_token.py, check_db_url.py, demo_tournament.py
-│   ├── tests/                # ~300 tests; needs a real Postgres
+│   ├── tests/                # ~360 tests across 23 files; needs a real Postgres
 │   ├── pyproject.toml        alembic.ini    README.md   CLAUDE.md
 │   └── Dockerfile            fly.toml       docker-compose.yml
 ├── frontend/                 # React + Vite web app (PWA)
@@ -78,17 +81,18 @@ threes/
 │   ├── build-env.ts          # build-time VITE_* guard (see vite.config.ts)
 │   ├── wrangler.jsonc        # Cloudflare Worker (static assets, SPA fallback)
 │   ├── .node-version         # 22
-│   └── package.json          vite.config.ts  vitest.config.ts  README.md
+│   └── package.json          vite.config.ts  vitest.config.ts  README.md  CLAUDE.md
 ├── docs/
-│   └── DEPLOYMENT.md         # the only one written; the three below are target layout
-│       # ARCHITECTURE.md, API.md, SECURITY.md
+│   ├── DEPLOYMENT.md         # the runbook, and what is deployed
+│   └── SCREENS.md            # every screen by role, and the gaps — sourced from `notes`
+│       # ARCHITECTURE.md, API.md, SECURITY.md are still target layout
 ├── .github/
 │   └── workflows/
 │       ├── backend-ci.yml       frontend-ci.yml
 │       ├── deploy-backend.yml   # manual (workflow_dispatch) Fly deploy
 │       ├── reminder-sweep.yml   # manual; the hourly cron is commented out
 │       └── claude.yml           claude-code-review.yml
-├── CLAUDE.md                 # This file — including all ten ADRs
+├── CLAUDE.md                 # This file — including all twelve ADRs
 ├── ROADMAP.md
 └── THREES_STRATEGY.md
 ```
@@ -102,84 +106,29 @@ the compose file's build context and the Docker build context are both that dire
 
 ## Development Commands
 
-### Backend (FastAPI)
+Each package documents its own commands, and this section deliberately does not restate them —
+they are the fastest-drifting thing in the repo and the copies multiply quietly:
 
-See [`backend/CLAUDE.md`](./backend/CLAUDE.md) for the full picture — notably that tests require a
-real Postgres (no mocked-DB path) and the local Postgres container publishes on host port 5433, not 5432.
+- **[`backend/CLAUDE.md`](./backend/CLAUDE.md)** — setup, `pytest`, `ruff`, `mypy`, Alembic.
+- **[`frontend/CLAUDE.md`](./frontend/CLAUDE.md)** — `npm` scripts, and the tsconfig and Vite
+  settings that reject valid-looking code.
 
-```bash
-# Setup
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-
-# Run development server
-uvicorn app.main:app --reload --port 8000
-
-# Run tests
-pytest
-pytest --cov=app tests/
-pytest tests/test_scoring.py                                # one file
-pytest tests/test_scoring.py::test_only_the_winner_scores   # one test
-pytest -k "loop"                                            # by name
-
-# Linting & formatting
-ruff check .
-ruff format .
-mypy app/                     # strict mode is on
-
-# Database migrations
-alembic upgrade head          # Apply all migrations
-alembic revision --autogenerate -m "description"  # Create migration
-alembic downgrade -1          # Rollback last migration
-```
-
-**Tests need Postgres running, always** — even the pure ones (`test_scoring.py`, `test_grouping.py`),
-because `tests/conftest.py` connects at module import time. The suite uses its own database,
-`threes_test`, which it creates on demand and whose tables it drops after every test; override with
-`TEST_DATABASE_URL`. It refuses to run against a non-local host, for that reason.
-
-**CI runs two checks the commands above don't**: `ruff format --check .` and `alembic upgrade head`.
-A locally clean `ruff check` can still fail CI on formatting, and a model change with no migration
-fails there rather than here.
-
-### Frontend (React + Vite)
-
-Node 22 (`frontend/.node-version`); npm, with `package-lock.json` committed.
+What is only true at this level:
 
 ```bash
-cd frontend
-npm install
-cp .env.example .env          # needs the sb_publishable_ key; see below
-
-npm run dev                   # http://localhost:5173
-npm run build                 # tsc -b && vite build → dist/
-npm run preview               # serve the built bundle
-
-npm test                      # vitest, once
-npm run test:watch
-npx vitest run src/lib/env.test.ts   # one file
-npm run typecheck             # tsc -b
-npm run lint                  # oxlint
+cd backend && docker compose up -d   # compose, Dockerfile and fly.toml live HERE, not at the root
+                                     # Postgres on host port 5433 (not 5432) + API on :8000
+cd frontend && npm run dev           # :5173, strictPort — see below
 ```
 
-The dev server's origin (`localhost:5173`) has to be in the backend's `CORS_ORIGINS`, which it is by
-default — and the port is `strictPort`, so it fails rather than sliding to 5174 and falling out of
-both that list and Supabase's redirect allow-list.
-
-**`npm run build` fails when the `VITE_*` config is absent.** That guard (`requireEnv()` in
-`vite.config.ts`, backed by `build-env.ts`) exists because the site once went live as a blank page
-built from nothing. It is `apply: 'build'` only, so dev and test runs don't trip it.
-
-### Docker (Full Stack)
-
-```bash
-cd backend                     # compose lives here, not at the root
-docker compose up -d           # Postgres on host port 5433 + API on :8000
-docker compose down
-docker compose logs -f backend
-```
+- **The backend tests need Postgres running, always**, even the pure ones (`test_scoring.py`,
+  `test_grouping.py`): `tests/conftest.py` connects at module import time.
+- **CI runs two checks no local command does** — `ruff format --check .` and `alembic upgrade head`.
+  A locally clean `ruff check` can still fail CI on formatting, and a model change with no migration
+  fails there rather than here.
+- **The frontend dev port is fixed at 5173** because that origin is in the backend's `CORS_ORIGINS`
+  and Supabase's redirect allow-list. `strictPort` makes a second dev server fail rather than slide
+  to 5174 and fall out of both.
 
 ### Deployment
 
@@ -310,77 +259,66 @@ The split is along the line between **fact and judgement**. Strokes are reported
 **Rejected:** storing only strokes and calling `score_hole` on every read. It is simpler and cannot drift, but it discards `decided_by` — the record of *why* a hole was awarded — and makes the leaderboard recompute the entire field on every poll, which is exactly the read path M8 needs to be cheap.
 
 ### ADR-010: Realtime is a signal, not a feed — Broadcast, not Postgres Changes
-Supabase Realtime tells clients the leaderboard moved. It **carries no scores**. The message is
+Supabase Realtime tells clients the leaderboard moved. It **carries no scores**: the message is
 `{"tournament_id": ..., "round_id": ...}` on topic `tournament:{id}`, and the client answers it by
 refetching `GET /tournaments/{id}/leaderboard` — through FastAPI, where `require_can_view` already
 decides who may see what.
 
-**Broadcast is used rather than Postgres Changes**, which is what an earlier draft of the roadmap
-assumed. Postgres Changes streams the `hole_scores` row itself and gates delivery on **RLS**: a
-subscriber receives a change only if a SELECT policy admits their JWT. Turning it on would mean a
-policy walking `hole_scores → groups → rounds → tournaments → tournament_participants` — which is
-`require_can_view` written a second time, in SQL, covered by no Python test and free to drift from
-the Python copy. ADR-009 rejected a second copy of an *enum label* for the same reason; a second
-copy of an authorization rule is worse.
-
-Broadcast also keeps ADR-001 literally true instead of nearly true. Nothing but Auth and a
-contentless ping reaches the client outside FastAPI, so there is no second read path to secure, and
-no data table carries an RLS policy.
+**Broadcast rather than Postgres Changes.** Postgres Changes streams the `hole_scores` row itself
+and gates delivery on **RLS** — a SELECT policy walking
+`hole_scores → groups → rounds → tournaments → tournament_participants`, which is `require_can_view`
+written again in SQL, covered by no Python test and free to drift. Broadcast keeps ADR-001 literally
+true instead: no second read path to secure, and no data table carries an RLS policy.
 
 **The signal is sent after the commit, not inside it.** `get_db` commits when its dependency
-finalises, which FastAPI runs *before* background tasks — so `POST /groups/{id}/holes/{hid}/scores`
-schedules the broadcast with `BackgroundTasks` rather than awaiting it. Awaiting it would send the
-ping mid-transaction, and a client quick enough to act would refetch a board that does not yet
-include the hole that caused the refetch. That ordering is a property of the framework rather than
-of this code, so `tests/test_realtime.py` pins it.
+finalises, which FastAPI runs *before* background tasks, so `POST /groups/{id}/holes/{hid}/scores`
+schedules the broadcast with `BackgroundTasks` rather than awaiting it — awaiting would ping
+mid-transaction, and a client quick enough to act would refetch a board missing the very hole that
+caused the refetch. That ordering is the framework's, not this code's, so `tests/test_realtime.py`
+pins it.
 
-**A failed broadcast is swallowed.** By then the hole is committed; a player who has just holed a
-putt should not see an error because Supabase was slow. The cost is that clients find out on their
-next poll instead of immediately.
+**A failed broadcast is swallowed** — the hole is already committed, and a player who has just holed
+a putt should not see an error because Supabase was slow. They find out on their next poll.
 
-**Public channels, for now.** A topic is keyed by tournament UUID and the payload says nothing, so
+**Public channels, for now.** The topic is keyed by tournament UUID and the payload says nothing, so
 an eavesdropper who guessed one would learn only that somebody scored. Private channels (RLS on
 `realtime.messages`) are Phase 3, and are the reason the payload is worth keeping empty.
 
-**Only score entry signals.** A new draw or a completed round also change what a client should show,
-but a client learns those on its own refresh; adding `round_drawn` / `round_complete` is two more
-call sites and a second event type, and waits until the frontend shows it is needed.
+**Only score entry signals.** A draw or a completed round also change what a client should show, but
+it learns those on its own refresh; `round_drawn` / `round_complete` wait until the frontend shows
+they are needed.
 
 ### ADR-011: A shotgun start is one group per tee, and the loop wraps
 
 Two ways of cutting the holes in play into loops, chosen per event by `tournaments.loop_style`:
 
-- **`BLOCKS`** — the default, and everything that existed before. The holes are cut into disjoint
-  triples, 1-3, 4-6, 7-9, so eighteen holes make six loops. Groups beyond the sixth share loops
-  round-robin and tee off staggered.
+- **`BLOCKS`** — the default, and everything that existed before. Disjoint triples, 1-3, 4-6, 7-9,
+  so eighteen holes make six loops. Groups beyond the sixth share loops round-robin and tee off
+  staggered.
 - **`SHOTGUN`** — every hole in play is a starting tee. A group starting on hole *s* plays *s*,
   *s+1*, *s+2*, counted **modulo the holes in play**, so eighteen holes make eighteen loops and the
   group on the 17th plays 17, 18, 1.
 
 The windows overlap, and that is the point: they cannot collide. At step *t* the group that started
-on *s* is on hole *s+t*, so two groups are on the same hole only if they started on the same tee.
-The field moves round the course as one procession, which is what a shotgun start is.
-`test_no_two_groups_are_ever_on_the_same_hole` asserts exactly that, per step.
+on *s* is on hole *s+t*, so two groups share a hole only if they started on the same tee — one
+procession round the course, which is what a shotgun is.
+`test_no_two_groups_are_ever_on_the_same_hole` asserts that per step.
 
-**Wrapping is what makes it eighteen loops rather than sixteen.** Without it the 17th and 18th tees
-could only ever be finishing holes and a course's worth of starting positions would quietly be
-sixteen — which is the difference between a 64-player fourball field having a tee each and not.
-
-**The wrap is generated, not typed.** The loop builder takes the holes in playing order and does
-the modular arithmetic itself, so an organiser never has to express "17, 18, 1" and `_select_holes`
-is free to go on sorting a selection into hole order. That sort is not a limitation of this design;
-it is its input.
+**Wrapping is what makes it eighteen loops rather than sixteen.** Without it the 17th and 18th could
+only ever be finishing holes, which is the difference between a 64-player fourball field having a
+tee each and not. The wrap is **generated, not typed**: the loop builder does the modular arithmetic
+itself, so an organiser never expresses "17, 18, 1" and `_select_holes` is free to go on sorting a
+selection into hole order — that sort is this design's input, not a limit on it.
 
 **Groups may still outnumber tees** — twenty-two groups of three on eighteen holes. The existing
 round-robin sharing in `allocate_loops` handles it unchanged, and no draw is refused for it.
 
-**A selection's shape is checked against the style, and so in the service rather than the schema.**
-`BLOCKS` needs whole triples, so a selection must be a multiple of three; `SHOTGUN` needs only that
-three holes exist, because every one of them is a start — a shotgun over holes 1-10 is ten loops.
-The style lives on the tournament, so the request body cannot tell which rule applies: a schema
-enforcing "a multiple of three" would 422 the common shotgun case. The check moved into
-`RoundService._check_selection`, next to the other thing only the service knows — whether the course
-has those holes — and answers **409** alongside it. The error names the way out.
+**A selection's shape is checked against the style, so in the service rather than the schema.**
+`BLOCKS` needs whole triples (a multiple of three); `SHOTGUN` needs only three holes, since every one
+is a start — a shotgun over 1-10 is ten loops. The style lives on the tournament, so the request body
+cannot tell which rule applies and a schema enforcing "a multiple of three" would 422 the common
+shotgun case. The check sits in `RoundService._check_selection`, beside the other thing only the
+service knows — whether the course has those holes — and answers **409** alongside it.
 
 **Why two functions rather than a flag.** `build_loops` promises disjoint triples with the remainder
 unused; `build_shotgun_loops` promises overlapping windows with every hole a start. A boolean would
@@ -390,9 +328,9 @@ not move.
 
 ### ADR-012: A knockout advances one player per group, and the verdict is stored
 
-In a `KNOCKOUT` tournament each group is a match and **one player goes through**. The rest are out.
-A 64-player fourball field is sixteen groups, then four, then one, then a champion — three rounds,
-and 64 is the largest bracket that fits three, because 65 players need four.
+In a `KNOCKOUT` tournament each group is a match and **one player goes through**; the rest are out.
+A 64-player fourball field is sixteen groups, then four, then one, then a champion — and 64 is the
+largest bracket that fits three rounds, because 65 players need four.
 
 **Who goes through is decided by four levels, stopping at the first that separates them:**
 
@@ -400,72 +338,59 @@ and 64 is the largest bracket that fits three, because 65 players need four.
 2. **Fewest total strokes**, the same tie-break the leaderboard uses (ADR-007).
 3. **Countback — whoever won the latest hole.** Holes nobody won are skipped, and so are holes won
    by a player already out on points or strokes: the question is which of *these two* took a hole
-   later, which is the same scoping ADR-007 puts on closest to the pin.
+   later, the same scoping ADR-007 puts on closest to the pin.
 4. **The organiser adjudicates.**
 
-**The fourth level is rarer than it looks, and the reason is worth stating.** Points come *only*
-from winning holes, so co-leaders on zero points mean nobody in the group won anything — every hole
-was halved. Countback therefore settles every tie **except a group that finished completely all
-square**, three or four players who halved everything in the same number of shots. Measured at the
-worst case, where a group never answers the closest-to-pin question, that is about 4.6% of fourball
-loops — under one of the sixteen groups in a 64-player round one, and rarer still in practice
-because groups do answer.
-
-There is nothing in the data that can break that tie, and the honest choices are a coin or a human.
-The human is better: they are standing there, they can send the group back down the last hole, and
-they are already who the field looks at when something is unclear.
+**The fourth level is rarer than it looks.** Points come *only* from winning holes, so co-leaders on
+zero mean every hole was halved. Countback therefore settles every tie except a group that finished
+completely all square — at worst, where the closest-to-pin question is never answered, about **4.6%
+of fourball loops**. Nothing in the data can break that tie, and between a coin and a human the
+human is better: they are standing there and can send the group back down the last hole.
 
 **Countback rather than a play-off or a re-draw.** A play-off needs the field still on the course
-and the light to hold. Re-drawing both players into the next round breaks the bracket's arithmetic —
-in a round of four it would produce a final of five. Countback costs nothing: `hole_results` already
-holds one winner per hole and `group_holes.sequence` already holds the order, and it is what golf
-does.
+and the light to hold; re-drawing both breaks the bracket's arithmetic — a round of four would
+produce a final of five. Countback costs nothing: `hole_results` already holds one winner per hole
+and `group_holes.sequence` the order.
 
 **The verdict is stored, not recomputed.** `groups.advancing_participant_id` and
-`groups.advanced_by` are written when the round completes. This is ADR-009's argument applied to a
-bracket: an audit trail recalculated on demand records nothing — it would only ever show what
-today's code thinks, not who the field was told had gone through. It also keeps "she won on
-countback" as a fact, and makes the next draw a read rather than a re-derivation of the previous
-round's entire card.
+`groups.advanced_by` are written when the round completes — ADR-009's argument applied to a bracket:
+an audit trail recalculated on demand would only show what today's code thinks, not who the field
+was told had gone through. It also makes the next draw a read rather than a re-derivation.
 
 **They are written at `complete_round`**, the moment a round's scores stop changing: `submit_hole`
-already refuses a round that is not `IN_PROGRESS`, and there is no route back to it. So a verdict
+already refuses a round that is not `IN_PROGRESS`, and there is no route back to it, so a verdict
 can never fall out of step with the scores behind it. Completing a round does **not** refuse an
-undecided group — the organiser has to be able to close the round while the field walks in — and
-the refusal lands at the next draw, where it actually blocks something.
+undecided group — the organiser has to be able to close the round while the field walks in — and the
+refusal lands at the next draw, where it actually blocks something.
 
 **Both columns are nullable, and a check constraint pairs them.** A round-robin group has neither,
 forever, which is what makes it provable that nothing about a round robin changed. A knockout group
 the cascade could not settle also has neither, and the next draw **refuses**, naming the groups
-(409). It does not guess and it does not drop the group from the bracket.
+(409) rather than guessing or dropping the group from the bracket.
 `(advancing_participant_id IS NULL) = (advanced_by IS NULL)` is enforced in the database for
-ADR-009's reason: a level with no player, or a player with no level, is a half-written verdict, and
-a wrong row is a player told they went through when they did not.
+ADR-009's reason: a half-written verdict is a player told they went through when they did not.
 
 **The organiser fills a gap; they do not overwrite an answer.** Adjudicating a group that already
-has a verdict is a 409. They are the backstop for "nothing separated them", not an editor of
-results — and there is no correction to serve either, since a completed round's scores are closed.
+has a verdict is a **409**. They are the backstop for "nothing separated them", not an editor of
+results — and a completed round's scores are closed, so there is no correction to serve either.
 
 **The bracket is re-randomised each round, not seeded.** `build_groups` is order-preserving, so
-carrying the previous round's group order forward would put group 1's winner against group 2's
-winner every time — a fixed bracket whose shape came from nothing but registration order surviving
-round one. Nothing here seeds, so that structure would carry no meaning while looking like it did.
-Seeding stays out of scope: there is no handicap or ranking to seed *from* until Phase 3.
+carrying the previous round's order forward would put group 1's winner against group 2's every time
+— a fixed bracket whose shape came from nothing but registration order surviving round one. Seeding
+stays out of scope: there is no handicap or ranking to seed *from* until Phase 3.
 
-**The last player is a refusal, not a transition.** When one player remains the draw answers 409
-naming the champion and pointing at the status endpoint. Ending the tournament stays the organiser's
-to press (ADR-003, ADR-008) — a draw that quietly set `TOURNAMENT_COMPLETE` would be setting a
-status it does not own. Without the guard the draw reaches `group_sizes(1)` and answers "Cannot form
-a group from a single player", which is true and unreadable as "you have a champion".
+**The last player is a refusal, not a transition.** When one player remains the draw answers **409**
+naming the champion and pointing at the status endpoint; ending the tournament stays the organiser's
+to press (ADR-003, ADR-008). Without the guard the draw reaches `group_sizes(1)` and answers "Cannot
+form a group from a single player", which is true and unreadable as "you have a champion".
 
 **The leaderboard ranks a knockout by how far a player got**, then points, then strokes. A champion
-can finish *behind* a beaten finalist on cumulative points — they played the same holes, and a
-champion who advanced twice on strokes may have won none at all — so a board ordered on points
-would be reporting a different competition from the one that was run. `rounds_survived` is the last
-round a player was drawn into plus one if they won it, which puts the champion alone at the top by
-construction. It defaults to 0, making it a constant leading sort key for every round robin and
-therefore no change to one; on the wire it is **null** rather than 0 on a round robin, because 0
-would read as "went out immediately".
+can finish *behind* a beaten finalist on cumulative points — one who advanced twice on strokes may
+have won no holes at all — so a board ordered on points would report a different competition from
+the one that was run. `rounds_survived` is the last round a player was drawn into plus one if they
+won it, putting the champion alone at the top by construction. It defaults to 0, a constant leading
+sort key for every round robin and therefore no change to one; on the wire it is **null** rather
+than 0 there, because 0 would read as "went out immediately".
 
 
 ## Coding Conventions
@@ -634,20 +559,17 @@ VITE_API_BASE_URL=http://localhost:8000
 
 ## Important Context
 
-1. The MVP launches in Australia targeting corporate golf days.
-2. "Threes" refers to the 3-hole competition format, not a card game.
-3. The scoring engine is the most critical business logic — it must be exhaustively tested.
-4. Real-time leaderboards use Supabase Realtime **Broadcast**, not custom WebSockets and not
-   Postgres Changes. The message carries no scores — it only tells a client to refetch the
-   leaderboard endpoint. See ADR-010 for why Postgres Changes was rejected.
-5. Magic link is the intended auth, and Supabase Auth handles the entire flow. **A password
-   sign-in path exists alongside it, temporarily**, behind `VITE_ENABLE_PASSWORD_LOGIN` (on unless
-   set to `false`). It is there because Supabase's built-in sender allows two messages an hour, so
-   the link frequently never arrives — a bypass that needs no inbox. Supabase stores the password,
-   not this app, and the flag comes off once custom SMTP is configured (`docs/DEPLOYMENT.md` §3).
-   Until then, "no passwords are stored" is not true of this project.
-6. MVP is a **lean validation build**: web-only, no AI, no offline sync — see `THREES_STRATEGY.md`. The MVP milestone is running one real corporate golf day, with the organiser paying the per-event fee.
-7. Phase 2 — post-pilot engagement & growth. **All six workstreams are built**: Fun Rounds,
-   invite / join-links + QR, player caps, reminders (which pulled an outbound-email channel forward),
-   referrals, and per-player stats / history. `ROADMAP.md` has the scope and dependencies.
-8. Phase 3 — later (everything else deferred, folded into one bucket): **handicaps / net scoring**, native iOS/Android apps, offline-first sync, AI invitation/summary generation, standalone longest-drive and closest-to-pin competitions (with their own prizes and leaderboards), social friends, gamification, realtime private channels — plus the commercial build: Stripe payment processing, golf club/corporate accounts, sponsors. Note that longest drive and closest to pin are *captured* in MVP because ADR-007 needs them to break tied holes — what's deferred is treating them as competitions in their own right.
+- The MVP launches in **Australia**, targeting corporate golf days, and "Threes" is the 3-hole
+  competition format — not a card game.
+- **The scoring engine is the most critical business logic** and must be exhaustively tested.
+- **A password sign-in path exists alongside magic link, temporarily**, behind
+  `VITE_ENABLE_PASSWORD_LOGIN` (on unless set to `false`). Supabase's built-in sender allows two
+  messages an hour, so the link frequently never arrives, and this is a bypass that needs no inbox.
+  Supabase stores the password, not this app, and the flag comes off once custom SMTP is configured
+  (`docs/DEPLOYMENT.md` §3). Until then, "no passwords are stored" is not true of this project.
+- **Phase 3 is the do-not-build list**, and `ROADMAP.md` has the detail: handicaps / net scoring,
+  native apps, offline sync, AI generation, standalone longest-drive and closest-to-pin
+  competitions, social, gamification, private realtime channels, and the commercial build — Stripe,
+  club/corporate accounts, sponsors. Longest drive and closest to pin are *captured* in MVP because
+  ADR-007 needs them to break tied holes; what is deferred is treating them as competitions in their
+  own right.
