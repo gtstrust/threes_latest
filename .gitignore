@@ -7,3 +7,7 @@
 # back out of it. Both are scratch — the canvas itself is the record.
 .design/
 .design-live/
+
+# Personal scratch — a running wish-list of user stories, not a project doc.
+# Its content is captured in docs/SCREENS.md, which cites it as the source.
+notes

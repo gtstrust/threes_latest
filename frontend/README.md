@@ -80,6 +80,9 @@ hard way:
 
 ## Status
 
-Slice 1 of 5 — shell, magic-link auth, profile provisioning, PWA install.
-Tournaments, the draw, score entry and the leaderboard follow; see the Frontend
-table in [`../ROADMAP.md`](../ROADMAP.md).
+See the Frontend table in [`../ROADMAP.md`](../ROADMAP.md), which is the source of
+truth for what is built. This section deliberately does not restate it — the copy
+that used to live here drifted several slices behind the code.
+
+For the architecture behind these files — the query keys, the realtime signal, the
+profile-provisioning gate — see [`CLAUDE.md`](./CLAUDE.md).
