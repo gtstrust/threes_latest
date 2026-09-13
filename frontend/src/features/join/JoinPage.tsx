@@ -10,6 +10,7 @@
 import { useNavigate } from 'react-router-dom';
 
 import { Card, ErrorNote, Loading, Page } from '../../components/ui';
+import { HelpPanel } from '../help/HelpPanel';
 import { useAcceptInvitation, useJoinPreview } from '../../lib/queries';
 import type { JoinPreview } from '../../lib/types';
 
@@ -54,6 +55,11 @@ export function JoinPage({ code }: { code: string }) {
             </span>
           </div>
         </Card>
+
+        {/* The coldest arrival in the app: a guest who scanned a QR on a tee and
+            has never heard of the format. The explainer is public precisely so
+            this link works before they have an account. */}
+        <HelpPanel topic="invitation" />
 
         {invite.can_join ? (
           <button

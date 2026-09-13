@@ -6,6 +6,7 @@
  */
 
 import { useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 
 import { env } from '../../lib/env';
 import { sendMagicLink, signInWithPassword, signUpWithPassword } from '../../lib/supabase';
@@ -88,6 +89,11 @@ export function LoginPage({ notice }: { notice?: string | null } = {}) {
       {/* Describes the link, not the screen: the password fallback below would
           make "no password to remember" read as a contradiction. */}
       <p className="muted">Sign in with your email — we&rsquo;ll send you a link.</p>
+      {/* The only place the product explains itself before an account exists.
+          `/how-it-works` is outside the auth guard for this link. */}
+      <p className="muted small">
+        New to Threes? <Link to="/how-it-works">How it works</Link>
+      </p>
       <form onSubmit={onSubmit}>
         <label htmlFor="email">Email</label>
         <input

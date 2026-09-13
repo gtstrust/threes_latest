@@ -12,6 +12,7 @@ import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Card, Empty, ErrorNote, Loading, Page } from '../../components/ui';
+import { HelpPanel } from '../help/HelpPanel';
 import {
   useAddVirtualToFunRound,
   useFinishFunRound,
@@ -52,7 +53,9 @@ export function FunRoundPage({ funRoundId }: { funRoundId: UUID }) {
     <Page
       title={detail.name}
       back={{ to: '/', label: 'Home' }}
-      actions={<Link to={`/r/${funRoundId}/leaderboard`}>Leaderboard</Link>}
+      actions={<Link to={`/r/${funRoundId}/leaderboard`}>
+      <HelpPanel topic="fun-round" />
+Leaderboard</Link>}
     >
       {detail.status === 'lobby' && <Lobby detail={detail} isHost={isHost} inField={inField} />}
 

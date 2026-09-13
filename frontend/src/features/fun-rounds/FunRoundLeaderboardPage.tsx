@@ -10,6 +10,7 @@ import { useQueryClient } from '@tanstack/react-query';
 
 import { Board } from '../leaderboard/LeaderboardPage';
 import { Card, Empty, ErrorNote, Loading, Page } from '../../components/ui';
+import { HelpPanel } from '../help/HelpPanel';
 import { keys, useFunRound, useRoundLeaderboard } from '../../lib/queries';
 import { subscribeToTournament } from '../../lib/realtime';
 import type { UUID } from '../../lib/types';
@@ -34,6 +35,8 @@ export function FunRoundLeaderboardPage({ funRoundId }: { funRoundId: UUID }) {
 
   return (
     <Page title="Leaderboard" back={{ to: `/r/${funRoundId}`, label: 'Fun round' }}>
+      <HelpPanel topic="board" />
+
       {live && (
         <p className="muted small" aria-live="polite">
           Updating live

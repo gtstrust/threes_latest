@@ -108,7 +108,11 @@ describe('score entry', () => {
     await user.click(await screen.findByRole('button', { name: /save hole/i }));
 
     expect(await screen.findByText(/takes it/i)).toHaveTextContent('Kim');
-    expect(screen.queryByText(/closest to the pin/i)).not.toBeInTheDocument();
+    // By role. The help panel on this screen previews the tie-break in prose, so
+    // the question being *asked* is a heading — which is what "asks nothing" means.
+    expect(
+      screen.queryByRole('heading', { name: /closest to the pin/i }),
+    ).not.toBeInTheDocument();
   });
 
   it('offers only the tied players when the strokes tie', async () => {
@@ -120,7 +124,7 @@ describe('score entry', () => {
 
     // Dave played the hole and is irrelevant — ADR-007 contests the tie-break
     // among the tied players alone, and naming anyone else is a 422.
-    const question = await screen.findByText(/who was closest to the pin/i);
+    const question = await screen.findByRole('heading', { name: /who was closest to the pin/i });
     const card = question.closest('section')!;
     expect(within(card).getByRole('button', { name: 'Kim' })).toBeInTheDocument();
     expect(within(card).getByRole('button', { name: 'Priya' })).toBeInTheDocument();
@@ -163,7 +167,9 @@ describe('score entry', () => {
     await user.click(await screen.findByRole('button', { name: /save hole/i }));
     await user.click(await screen.findByRole('button', { name: /nobody reached the green/i }));
 
-    expect(await screen.findByText(/longest drive on the fairway/i)).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { name: /longest drive on the fairway/i }),
+    ).toBeInTheDocument();
     // Declining must not post anything; the hole already stands as it is.
     expect(post).toHaveBeenCalledTimes(1);
   });

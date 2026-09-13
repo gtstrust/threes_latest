@@ -41,6 +41,7 @@ two, once for a tournament and once for a fun round.
 | Route | Screen | What it does |
 |---|---|---|
 | — | `LoginPage` | Magic link, plus the temporary password bypass behind `VITE_ENABLE_PASSWORD_LOGIN` |
+| `/how-it-works` | `HowItWorksPage` | The explainer, stepped. **The one route outside the auth guard** — readable before signing in |
 | `/` | `HomePage` | "Your golf" — your events, each badged Playing or Organising; entry points to a new tournament or fun round |
 | `/me` | `StatsPage` | Career totals, round by round, by course, display name, appearance |
 
@@ -75,7 +76,9 @@ two, once for a tournament and once for a fun round.
 
 - **There is no navigation chrome.** No tab bar, no drawer. Every screen is a `Page` — a title, an
   optional back link, and actions — reached by back link or deep link. The short paths are
-  deliberate: they get texted on the day and read aloud on a tee.
+  deliberate: they get texted on the day and read aloud on a tee. The one thing every screen now
+  carries is its own `HelpPanel`, which is content rather than navigation: it answers in place
+  instead of sending anyone anywhere.
 - **There is not one media query in 832 lines of CSS.** The app is mobile-only by construction, so
   "which mobile screens" is simply "which screens". It also means **print** is the one output
   format with no support whatsoever.
@@ -91,7 +94,7 @@ two, once for a tournament and once for a fun round.
 | Player accept **or decline** | partial | Accept only — `JoinPage` offers "I'm in" and nothing else |
 | Run tournament (dashboard) | built | "Run the day" on `/t/:id` |
 | Remind players of tournament | built | "Remind the field", plus the scheduled sweep |
-| Player can watch videos about Threes | **missing** | No help, rules or explainer content anywhere in the app |
+| Player can watch videos about Threes | built, as text | `/how-it-works` — a stepped explainer, plus a help panel on every screen. Not video: see #1 below |
 | Player plays hole | built | `/g/:groupId`, including the tie-break cascade |
 | Player finishes 3 holes | built | Scorecard, then the organiser completes the round |
 | Winners | built | Leaderboard, and "Goes through" per group in a knockout |
@@ -140,7 +143,26 @@ two, once for a tournament and once for a fun round.
 Ranked by pilot risk, not by effort. The milestone is running one real corporate golf day, so a
 screen the day goes wrong without outranks a screen that is merely good.
 
-### 1. How Threes works — player, before the pilot
+### 1. How Threes works — player, before the pilot ✅ *built*
+
+**What shipped.** `/how-it-works` is a stepped walkthrough — six steps on the format for a player,
+four more on running an event for an organiser — and every screen carries a `HelpPanel`, a
+`<details>` under the title that answers *that* screen in two or three sentences and offers the
+walkthrough. The panel opens in place and never navigates, because the screen it matters most on is
+score entry and the person reading it has a half-entered card in front of them.
+
+**Text, not video**, as the entry below predicted: it ships sooner, it works without signal, and the
+service worker precaches the shell while deliberately caching nothing at runtime (ADR-005). The two
+drawings are inline SVG for the same reason — one of them the wordmark's own motif, since a ball
+whose dimples read as three has never been explained to anybody.
+
+**It is the app's only public route.** `RequireAuth` used to sit outside `<Routes>` and gate
+everything; it is now a layout route with `/how-it-works` as its one sibling. A guest handed an
+invitation wants to know what Threes is *before* they have an account, so the answer could not stay
+behind the thing they were deciding whether to do. `src/routes.test.tsx` guards that, and is the one
+test in the app that renders `App` rather than a screen.
+
+The original entry, kept because the reasoning is what the screen was built to answer:
 
 There is no help text anywhere in the app. A guest scans a QR on the first tee, signs in, lands on
 an invitation, taps "I'm in", and the next thing they see asks how many strokes they took — with no

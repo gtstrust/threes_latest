@@ -12,6 +12,7 @@ import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { Card, ErrorNote, Page } from '../../components/ui';
+import { HelpPanel } from '../help/HelpPanel';
 import { useCoursePicker } from '../courses/CoursePicker';
 import { useCreateFunRound } from '../../lib/queries';
 
@@ -62,6 +63,8 @@ export function NewFunRoundPage() {
 
   return (
     <Page title="New fun round" back={{ to: '/', label: 'Home' }}>
+      <HelpPanel topic="fun-round" />
+
       <Card>
         <form onSubmit={onSubmit}>
           <label htmlFor="name">What are you playing?</label>

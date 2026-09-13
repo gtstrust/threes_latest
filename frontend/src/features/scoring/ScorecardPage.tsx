@@ -14,6 +14,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 
 import { Card, Empty, ErrorNote, Loading, Page } from '../../components/ui';
+import { HelpPanel } from '../help/HelpPanel';
 import { api } from '../../lib/api';
 import { useEventCourse, useGroupCard, useRound } from '../../lib/queries';
 import type { DecidedBy, Group, HoleResult, Participant, UUID } from '../../lib/types';
@@ -79,6 +80,8 @@ export function ScorecardPage({ groupId, backTo }: { groupId: UUID; backTo?: Bac
 
   return (
     <Page title="Scorecard" back={back} theme="lit">
+      <HelpPanel topic="card" />
+
       <p className="muted small">
         Group {group.data?.group_number} · {played.length} of {loop.length} holes scored
       </p>

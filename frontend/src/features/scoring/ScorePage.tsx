@@ -15,6 +15,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Card, ErrorNote, Loading, Page } from '../../components/ui';
+import { HelpPanel } from '../help/HelpPanel';
 import { useEventCourse, useGroupCard, useRound, useSubmitHole } from '../../lib/queries';
 import { api } from '../../lib/api';
 import { useQuery } from '@tanstack/react-query';
@@ -119,6 +120,8 @@ function ScoreCard({
       back={backTo ?? { to: `/t/${tournamentId}`, label: 'Tournament' }}
       theme="lit"
     >
+      <HelpPanel topic="scoring" />
+
       {/*
         Buttons, not a progress bar. They show where the group is up to, but they
         are how somebody goes back to fix a mis-keyed hole — which is the whole

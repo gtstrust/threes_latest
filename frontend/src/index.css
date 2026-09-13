@@ -830,3 +830,110 @@ select {
 .place-4 {
   color: var(--muted);
 }
+
+/* --- Help and the explainer --------------------------------------------- */
+
+/*
+ * The per-screen disclosure. A `<details>`, so open and close cost no JS — and
+ * it deliberately sits between the page header and the screen's own content,
+ * pushing it down rather than floating over it. On a phone held in one hand, a
+ * panel that covers the thing being asked about is worse than no panel.
+ *
+ * It inherits whatever theme it lands in, which is what puts it in the bright
+ * `.lit` register on score entry and the scorecard without either screen
+ * knowing it is there.
+ */
+.help {
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--surface);
+  margin: 0 0 1rem;
+}
+
+.help summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  /* 3rem is the tap target everywhere else in this app; a disclosure nobody can
+     hit with a thumb is a disclosure nobody opens. */
+  min-height: 3rem;
+  padding: 0 0.9rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+/* Safari draws its own triangle from the shadow DOM; the mark below replaces it. */
+.help summary::-webkit-details-marker {
+  display: none;
+}
+
+.help-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--raised);
+  font-weight: 700;
+}
+
+.help-body {
+  padding: 0 0.9rem 0.9rem;
+  font-size: 0.9rem;
+}
+
+.help-body p {
+  margin: 0 0 0.6rem;
+}
+
+/*
+ * The walkthrough's progress. Named `walk-` rather than `step-`: `.stepper` is
+ * already the plus/minus strokes control on score entry, and two things called
+ * the same thing in one stylesheet is how the wrong one gets edited.
+ */
+.walk-dots {
+  display: flex;
+  gap: 0.4rem;
+  list-style: none;
+  padding: 0;
+  margin: 0.6rem 0 0;
+}
+
+.walk-dots li {
+  height: 0.3rem;
+  flex: 1;
+  border-radius: 0.15rem;
+  background: var(--border);
+}
+
+.walk-dots li.done {
+  background: var(--green);
+}
+
+.walk-nav {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.walk-nav button,
+.walk-nav .button-link {
+  width: 100%;
+}
+
+/* Sized against the text rather than the viewport — these are small drawings
+   sitting in a card, not artwork. */
+.diagram {
+  display: block;
+  width: 100%;
+  max-width: 11rem;
+  height: auto;
+  margin: 0 0 0.9rem;
+  color: var(--green);
+}

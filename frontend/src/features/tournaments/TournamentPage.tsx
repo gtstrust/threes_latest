@@ -17,6 +17,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Card, Empty, ErrorNote, Loading, Page } from '../../components/ui';
+import { HelpPanel } from '../help/HelpPanel';
 import {
   useAddVirtualPlayer,
   useCompleteRound,
@@ -142,6 +143,12 @@ export function TournamentPage({ tournamentId }: { tournamentId: UUID }) {
         {[course.data?.name, readableWhen(event.scheduled_at)].filter(Boolean).join(' · ') ||
           'No course or date set yet'}
       </p>
+
+      {/* One route, two jobs — an organiser needs to know how to run the day, a
+          player needs to know what their group is. A corporate organiser usually
+          plays too, so this follows the same `isOrganiser` branch the rest of the
+          screen does rather than inventing a third state. */}
+      <HelpPanel topic={isOrganiser ? 'run-the-day' : 'your-group'} />
 
       {isKnockout && round.data && (
         <p className="muted small meta">
