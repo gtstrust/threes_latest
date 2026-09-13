@@ -74,7 +74,11 @@ class ParticipantService:
         return await self._repository.get_for_player(tournament_id, player_id)
 
     async def self_register(
-        self, tournament: Tournament, current_user: CurrentUser, display_name: str | None
+        self,
+        tournament: Tournament,
+        current_user: CurrentUser,
+        display_name: str | None,
+        playing_handicap: int | None = None,
     ) -> TournamentParticipant:
         """Add the caller to a tournament's field.
 
@@ -109,11 +113,17 @@ class ParticipantService:
         resolved = display_name or player.display_name or player.email
 
         return await self._repository.create(
-            tournament_id=tournament.id, display_name=resolved, player_id=current_user.id
+            tournament_id=tournament.id,
+            display_name=resolved,
+            player_id=current_user.id,
+            playing_handicap=playing_handicap,
         )
 
     async def add_virtual_player(
-        self, tournament: Tournament, display_name: str
+        self,
+        tournament: Tournament,
+        display_name: str,
+        playing_handicap: int | None = None,
     ) -> TournamentParticipant:
         """Add someone with no account, whose scores a groupmate will enter.
 
@@ -131,8 +141,35 @@ class ParticipantService:
         """
         self._require_field_unlocked(tournament)
         return await self._repository.create(
-            tournament_id=tournament.id, display_name=display_name, player_id=None
+            tournament_id=tournament.id,
+            display_name=display_name,
+            player_id=None,
+            playing_handicap=playing_handicap,
         )
+
+    async def set_handicap(
+        self,
+        tournament: Tournament,
+        participant: TournamentParticipant,
+        playing_handicap: int | None,
+    ) -> TournamentParticipant:
+        """Set or clear a player's playing handicap for this event (ADR-013).
+
+        **The same window as adding and removing players**, and for the same
+        reason: shots are dealt from this number, so changing it mid-round would
+        re-decide holes the group has already been told the result of. Once play
+        starts the competition is fixed.
+
+        Clearing it back to null is allowed while the field is open — an organiser
+        who typed the wrong number into the wrong row needs a way out that is not
+        deleting the player. The draw refuses a null on a handicap event, so a
+        cleared handicap cannot reach a card.
+
+        Raises:
+            FieldLocked: If play has already started.
+        """
+        self._require_field_unlocked(tournament)
+        return await self._repository.set_handicap(participant, playing_handicap)
 
     async def remove(self, tournament: Tournament, participant: TournamentParticipant) -> None:
         """Remove someone from the field.

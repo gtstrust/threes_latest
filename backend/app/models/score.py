@@ -42,6 +42,7 @@ class HoleScore(Base, TimestampMixin):
         ),
         CheckConstraint("strokes >= 1", name="ck_hole_scores_strokes_positive"),
         CheckConstraint("points IN (0, 1)", name="ck_hole_scores_points_range"),
+        CheckConstraint("strokes_received >= 0", name="ck_hole_scores_strokes_received_positive"),
     )
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -64,6 +65,14 @@ class HoleScore(Base, TimestampMixin):
     )
     strokes: Mapped[int] = mapped_column(Integer, nullable=False)
     points: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    #: Shots this player's handicap gave them on this hole (ADR-013). Net strokes
+    #: are `strokes - strokes_received`, derived rather than stored, because two
+    #: columns holding the same fact are two columns free to disagree. **0 on
+    #: every row of a scratch event**, which is what makes it provable that
+    #: nothing about one changed.
+    strokes_received: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
 
 
 class HoleResult(Base, TimestampMixin):

@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID, uuid4
 
-from sqlalchemy import ARRAY, CheckConstraint, DateTime, ForeignKey, Integer, String, text
+from sqlalchemy import ARRAY, Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, text
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -153,6 +153,18 @@ class Tournament(Base, TimestampMixin):
         nullable=False,
         default=LoopStyle.BLOCKS,
         server_default=LoopStyle.BLOCKS.value,
+    )
+
+    # The per-event opt-in for handicaps (ADR-013). Same shape as the two above,
+    # and false unless somebody says otherwise — a scratch event is bit for bit
+    # the event it was before handicaps existed. A fun round inherits this column
+    # by being a `tournaments` row, but `FunRoundService.create` narrows its
+    # payload by hand, so the flag has to be plumbed there explicitly.
+    handicap_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
     )
 
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

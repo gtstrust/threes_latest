@@ -23,8 +23,14 @@ class LeaderboardEntryRead(BaseModel):
     #: knocked out and the figure would mean nothing.
     rounds_survived: int | None = None
     points: int
+    #: Gross, unchanged in meaning so a client predating handicaps still reads
+    #: the number it expects.
     total_strokes: int
     holes_played: int
+    #: Gross less the shots received, and what the ranking actually used
+    #: (ADR-013). **Null on a scratch event** — a figure equal to `total_strokes`
+    #: would read as a real net score rather than as "not applicable".
+    net_strokes: int | None = None
 
 
 class LeaderboardRead(BaseModel):

@@ -143,7 +143,11 @@ class AdvancementService:
             GroupStanding(
                 participant_id=member.participant_id,
                 points=totals.get(member.participant_id, NO_SCORE).points,
-                total_strokes=totals.get(member.participant_id, NO_SCORE).strokes,
+                # Net (ADR-013). Level 2 of the cascade is "fewest total strokes",
+                # and on a handicap event that is the net figure — the same number
+                # the leaderboard splits level players on. Zero shots received on a
+                # scratch event, so this is arithmetically what it always was.
+                total_strokes=totals.get(member.participant_id, NO_SCORE).net_strokes,
             )
             for member in members
         ]

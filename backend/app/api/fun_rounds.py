@@ -145,7 +145,9 @@ async def join_fun_round(
     """Join a fun round you were sent the link to. Anyone authenticated may join."""
     fun_round = await _fun_round_or_404(fun_round_id, service)
     try:
-        participant = await service.join(fun_round, current_user, payload.display_name)
+        participant = await service.join(
+            fun_round, current_user, payload.display_name, payload.playing_handicap
+        )
     except PlayerProfileMissing:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -169,7 +171,9 @@ async def add_virtual_to_fun_round(
     fun_round = await _fun_round_or_404(fun_round_id, service)
     require_organiser(fun_round, current_user)
     try:
-        participant = await service.add_virtual(fun_round, payload.display_name)
+        participant = await service.add_virtual(
+            fun_round, payload.display_name, payload.playing_handicap
+        )
     except (FunRoundFull, FieldLocked) as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return ParticipantRead.model_validate(participant)

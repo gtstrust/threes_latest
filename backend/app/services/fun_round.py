@@ -99,21 +99,37 @@ class FunRoundService:
         """
         if payload.course_id is not None and payload.hole_numbers is not None:
             await self._require_holes_exist(payload.course_id, payload.hole_numbers)
+        if payload.handicap_enabled and payload.course_id is not None:
+            await self._require_stroke_indexes(payload.course_id, payload.hole_numbers)
 
         fun_round = await self._tournaments.create(
             host,
-            TournamentCreate(name=payload.name, course_id=payload.course_id),
+            # Named field by field rather than spread, so anything new on
+            # `FunRoundCreate` has to be plumbed here deliberately. `handicap_enabled`
+            # is the first thing to need it — without this line a fun round would
+            # carry the column and have no way on earth to turn it on.
+            TournamentCreate(
+                name=payload.name,
+                course_id=payload.course_id,
+                handicap_enabled=payload.handicap_enabled,
+            ),
             kind=TournamentKind.FUN_ROUND,
             hole_numbers=payload.hole_numbers,
         )
         fun_round = await self._tournaments.transition(
             fun_round, TournamentStatus.REGISTRATION_OPEN
         )
-        await self._participants.self_register(fun_round, host, payload.display_name)
+        await self._participants.self_register(
+            fun_round, host, payload.display_name, payload.playing_handicap
+        )
         return fun_round
 
     async def join(
-        self, fun_round: Tournament, current_user: CurrentUser, display_name: str | None
+        self,
+        fun_round: Tournament,
+        current_user: CurrentUser,
+        display_name: str | None,
+        playing_handicap: int | None = None,
     ) -> TournamentParticipant:
         """Add the caller to a fun round they opened the link to.
 
@@ -125,9 +141,16 @@ class FunRoundService:
         existing = await self._participants.get_for_player(fun_round.id, current_user.id)
         if existing is None and await self.is_full(fun_round):
             raise self._full_error()
-        return await self._participants.self_register(fun_round, current_user, display_name)
+        return await self._participants.self_register(
+            fun_round, current_user, display_name, playing_handicap
+        )
 
-    async def add_virtual(self, fun_round: Tournament, display_name: str) -> TournamentParticipant:
+    async def add_virtual(
+        self,
+        fun_round: Tournament,
+        display_name: str,
+        playing_handicap: int | None = None,
+    ) -> TournamentParticipant:
         """Add a mate with no account, whose scores the host enters.
 
         Raises:
@@ -136,7 +159,9 @@ class FunRoundService:
         """
         if await self.is_full(fun_round):
             raise self._full_error()
-        return await self._participants.add_virtual_player(fun_round, display_name)
+        return await self._participants.add_virtual_player(
+            fun_round, display_name, playing_handicap
+        )
 
     async def start(self, fun_round: Tournament, hole_numbers: Sequence[int] | None) -> Round:
         """Close joining and draw the single group over its 3-hole loop.
@@ -196,6 +221,31 @@ class FunRoundService:
                 f"This course has no hole {missing} entered. It has "
                 f"{entered or 'no holes'}. Add the holes to the course first, or "
                 "pick from the ones it has."
+            )
+
+    async def _require_stroke_indexes(self, course_id: UUID, wanted: Sequence[int] | None) -> None:
+        """Check the holes can be ranked for difficulty, at setup (ADR-013).
+
+        `RoundService.draw_round` refuses this too, and that refusal is the real
+        guarantee — but it lands when the host presses start, which is the moment
+        `create`'s own docstring describes as the one to avoid: "at the first tee,
+        with the group already assembled". A fun round has no organiser at a desk,
+        so the honest place to fail is the setup form.
+
+        Raises:
+            FunRoundHolesUnavailable: naming the holes that have no index.
+        """
+        holes = await self._courses.list_holes(course_id)
+        if wanted is not None:
+            holes = [hole for hole in holes if hole.hole_number in set(wanted)]
+        missing = sorted(hole.hole_number for hole in holes if hole.stroke_index is None)
+        if missing:
+            raise FunRoundHolesUnavailable(
+                f"Handicaps need a stroke index on every hole, and "
+                f"{'hole' if len(missing) == 1 else 'holes'} "
+                f"{', '.join(str(n) for n in missing)} "
+                f"{'has' if len(missing) == 1 else 'have'} none. Add them to the "
+                "course, or start this round without handicaps."
             )
 
     async def _require_playable_course(

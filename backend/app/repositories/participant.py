@@ -34,14 +34,28 @@ class ParticipantRepository:
         return result.scalar_one_or_none()
 
     async def create(
-        self, tournament_id: UUID, display_name: str, player_id: UUID | None
+        self,
+        tournament_id: UUID,
+        display_name: str,
+        player_id: UUID | None,
+        playing_handicap: int | None = None,
     ) -> TournamentParticipant:
         participant = TournamentParticipant(
             tournament_id=tournament_id,
             player_id=player_id,
             display_name=display_name.strip(),
+            playing_handicap=playing_handicap,
         )
         self._session.add(participant)
+        await self._session.flush()
+        await self._session.refresh(participant)
+        return participant
+
+    async def set_handicap(
+        self, participant: TournamentParticipant, playing_handicap: int | None
+    ) -> TournamentParticipant:
+        """Write a participant's playing handicap (ADR-013)."""
+        participant.playing_handicap = playing_handicap
         await self._session.flush()
         await self._session.refresh(participant)
         return participant

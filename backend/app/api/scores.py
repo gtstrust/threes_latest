@@ -79,6 +79,10 @@ async def submit_hole_scores(
             strokes=payload.strokes,
             closest_to_pin=payload.closest_to_pin,
             longest_drive=payload.longest_drive,
+            # ADR-013: the event decides whether shots are allocated at all. The
+            # route already holds the tournament, so the service is handed it
+            # rather than reaching back through the round for it.
+            tournament=tournament,
         )
     except HoleNotInLoop as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

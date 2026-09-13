@@ -90,6 +90,27 @@ def _select_holes(holes: Sequence[Hole], wanted: Sequence[int]) -> list[Hole]:
     return [by_number[number] for number in sorted(set(wanted))]
 
 
+def _require_stroke_indexes(holes: Sequence[Hole]) -> None:
+    """Refuse a handicap draw over holes that cannot be ranked for difficulty.
+
+    Shots are dealt hardest-first (ADR-013), so a hole with no stroke index has no
+    place in the order. `stroke_index` stays nullable because a scratch event
+    never needs one — this is the one event that does, and it says so loudly.
+
+    Named by hole number rather than id, because that is the only name the
+    organiser fixing it will recognise.
+    """
+    missing = sorted(hole.hole_number for hole in holes if hole.stroke_index is None)
+    if missing:
+        raise DrawNotPossible(
+            "Handicaps need a stroke index on every hole being played, and "
+            f"{'hole' if len(missing) == 1 else 'holes'} "
+            f"{', '.join(str(number) for number in missing)} "
+            f"{'has' if len(missing) == 1 else 'have'} none. Add them to the "
+            "course, or turn handicaps off for this event."
+        )
+
+
 def _check_selection(hole_count: int, style: LoopStyle) -> None:
     """Refuse a selection this event's start style cannot cut into whole loops.
 
@@ -245,9 +266,18 @@ class RoundService:
         shotgun (ADR-011) makes every hole in play a starting tee, so sixteen
         fourballs take tees 1-16 and the whole field tees off at once.
 
+        On a **handicap** event two more things have to be true before a ball is
+        struck, and both are checked here rather than at score entry (ADR-013):
+        every hole in play needs a stroke index to deal shots by, and every player
+        needs an allowance. Refusing at the draw is what keeps ADR-013's answer to
+        ADR-007 honest — the failure lands while the organiser is still at a desk,
+        not on the first tee with the field assembled.
+
         Raises:
             RoundNotDrawable: If the tournament isn't ready for a new round.
-            DrawNotPossible: If it has no course, too few holes, or too few players.
+            DrawNotPossible: If it has no course, too few holes, too few players,
+                or — on a handicap event — a hole with no stroke index or a player
+                with no handicap.
         """
         if tournament.status not in DRAWABLE_FROM:
             raise RoundNotDrawable(
@@ -269,6 +299,10 @@ class RoundService:
         round_number = await self._rounds.next_round_number(tournament.id)
         participant_ids = await self._field_for_draw(tournament, round_number)
 
+        if tournament.handicap_enabled:
+            _require_stroke_indexes(holes)
+            await self._require_handicaps(tournament, participant_ids)
+
         try:
             groups = build_groups(participant_ids, target=tournament.group_size)
             loops = plan_loops([hole.id for hole in holes], style=tournament.loop_style)
@@ -286,6 +320,30 @@ class RoundService:
         )
         await self._tournaments.set_status(tournament, TournamentStatus.ROUND_IN_PROGRESS)
         return round_
+
+    async def _require_handicaps(
+        self, tournament: Tournament, participant_ids: Sequence[UUID]
+    ) -> None:
+        """Refuse a handicap draw while anybody in the field has no allowance.
+
+        **Not defaulted to zero.** A missing number almost always means "not
+        entered yet", and zero is the hardest handicap there is — so guessing
+        would silently penalise exactly the player nobody remembered to ask, and
+        would do it invisibly, on a board that looked complete.
+        """
+        field = await self._participants.list_for_tournament(tournament.id)
+        drawn = set(participant_ids)
+        missing = sorted(
+            player.display_name
+            for player in field
+            if player.id in drawn and player.playing_handicap is None
+        )
+        if missing:
+            raise DrawNotPossible(
+                "Handicaps are on for this event, so every player needs one. "
+                f"{', '.join(missing)} {'has' if len(missing) == 1 else 'have'} "
+                "none yet."
+            )
 
     async def complete_round(self, tournament: Tournament, round_: Round) -> Round:
         """Finish a round, moving both it and its tournament.

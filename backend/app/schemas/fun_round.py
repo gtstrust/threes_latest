@@ -75,6 +75,20 @@ class FunRoundCreate(BaseModel):
         default=None,
         description="Exactly three holes, e.g. [7, 8, 9]. Omit to use the whole course.",
     )
+    handicap_enabled: bool = Field(
+        default=False,
+        description=(
+            "Decide holes on net strokes rather than gross (ADR-013). Off unless "
+            "asked for. With it on, the chosen holes need stroke indexes — checked "
+            "here rather than at the tee — and every player needs a handicap."
+        ),
+    )
+    playing_handicap: int | None = Field(
+        default=None,
+        ge=0,
+        le=54,
+        description="The host's own handicap. A fun round has no organiser to type it for them.",
+    )
     # The host's name in this round, falling back to their profile name then email,
     # so a fun round can be started with just a name.
     display_name: str | None = Field(default=None, min_length=1, max_length=100)

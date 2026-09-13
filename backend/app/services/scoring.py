@@ -39,9 +39,91 @@ class HoleResult:
     points: Mapping[ParticipantId, int]
 
 
+@dataclass(frozen=True)
+class LoopHole:
+    """One hole of a loop, with the difficulty ranking shots are dealt by.
+
+    Only the two fields allocation needs. Deliberately not the `Hole` model: this
+    module takes plain data, and importing from `app.models` here would invert the
+    dependency the whole codebase leans on.
+    """
+
+    hole_id: UUID
+    stroke_index: int
+
+
+def shots_for_loop(playing_handicap: int, holes_in_loop: int) -> int:
+    """How many shots a handicap is worth over a loop of this length (ADR-013).
+
+    A playing handicap is an 18-hole figure, so it is pro-rated: three holes of
+    eighteen is a sixth of it. Rounded half up, and done in integers — a float
+    here would make the boundary cases depend on binary representation, and 4.5
+    shots has to land the same way every time.
+
+    Eighteen is the divisor whatever the course holds, because that is what the
+    handicap is quoted against. A club with nine holes entered does not halve
+    everybody's allowance.
+
+    Raises:
+        ValueError: If the handicap is negative or the loop is empty.
+    """
+    if playing_handicap < 0:
+        raise ValueError(f"A playing handicap cannot be negative; got {playing_handicap}")
+    if holes_in_loop < 1:
+        raise ValueError("Cannot pro-rate a handicap over a loop with no holes")
+    return (playing_handicap * holes_in_loop * 2 + 18) // 36
+
+
+def allocate_shots(
+    handicaps: Mapping[ParticipantId, int],
+    loop: Sequence[LoopHole],
+) -> dict[ParticipantId, dict[UUID, int]]:
+    """Deal each player's shots across the holes of one loop (ADR-013).
+
+    Hardest hole first, by stroke index, then round again: with four shots over
+    three holes the hardest gets two and the others one each. That is the order
+    every golfer expects, and it is the whole reason this depends on
+    `stroke_index` rather than spreading shots evenly.
+
+    **Ties in stroke index are broken on hole id**, which matters more than it
+    looks: there is no unique constraint on `(course_id, stroke_index)`, so two
+    holes really can share one. Without the second key the order would come from
+    whatever the caller happened to pass, and the same card could allocate
+    differently on a re-submission.
+
+    Args:
+        handicaps: Playing handicap per participant. A player absent from this
+            mapping receives nothing, which is what a scratch event looks like.
+        loop: The holes being played, in any order — this sorts them itself.
+
+    Returns:
+        Shots per participant per hole. Every player in `handicaps` gets an entry
+        for every hole, zero included, so a caller never has to distinguish "no
+        shot here" from "not in the mapping".
+
+    Raises:
+        ValueError: If the loop is empty, or a handicap is negative.
+    """
+    if not loop:
+        raise ValueError("Cannot allocate shots over a loop with no holes")
+
+    hardest_first = sorted(loop, key=lambda hole: (hole.stroke_index, str(hole.hole_id)))
+
+    allocation: dict[ParticipantId, dict[UUID, int]] = {}
+    for participant_id, handicap in handicaps.items():
+        shots = shots_for_loop(handicap, len(loop))
+        base, extra = divmod(shots, len(hardest_first))
+        allocation[participant_id] = {
+            hole.hole_id: base + (1 if position < extra else 0)
+            for position, hole in enumerate(hardest_first)
+        }
+    return allocation
+
+
 def score_hole(
     strokes: Mapping[ParticipantId, int],
     *,
+    strokes_received: Mapping[ParticipantId, int] | None = None,
     closest_to_pin: ParticipantId | None = None,
     longest_drive: ParticipantId | None = None,
 ) -> HoleResult:
@@ -62,8 +144,16 @@ def score_hole(
     Both tie-break arguments are only consulted when there is actually a tie. An
     outright stroke winner takes the hole regardless of what is passed.
 
+    **Handicaps change what a stroke counts as, not what the cascade is**
+    (ADR-013). Pass `strokes_received` and every level above runs on *net*
+    strokes instead; omit it and this is exactly the function it was before, which
+    is what makes a scratch event provably unchanged.
+
     Args:
-        strokes: Strokes taken this hole, for every player in the group.
+        strokes: **Gross** strokes taken this hole, for every player in the group.
+        strokes_received: Shots each player's handicap gave them on this hole,
+            from `allocate_shots`. None or empty means a scratch event. A player
+            absent from it receives nothing.
         closest_to_pin: Whichever of the *tied* players was closest to the pin.
             None means this level cannot separate them — nobody reached the green
             or the group could not tell.
@@ -75,9 +165,9 @@ def score_hole(
         The winner (or None), which level decided it, and each player's points.
 
     Raises:
-        ValueError: If no strokes were supplied, any stroke count is below 1, or
-            a tie-break argument names a player who is not tied for fewest
-            strokes.
+        ValueError: If no strokes were supplied, any **gross** stroke count is
+            below 1, or a tie-break argument names a player who is not tied for
+            fewest net strokes.
     """
     if not strokes:
         raise ValueError("Cannot score a hole with no players")
@@ -86,15 +176,21 @@ def score_hole(
     if invalid:
         raise ValueError(f"Strokes must be 1 or more; got {invalid}")
 
-    fewest = min(strokes.values())
-    tied = {pid for pid, count in strokes.items() if count == fewest}
+    received = strokes_received or {}
+    # Gross is what the group reported and is validated above. Net is what decides
+    # the hole, and carries **no floor**: three shots on a three is a net zero, and
+    # a player owed more shots than they took has genuinely played it that well.
+    deciding = {pid: count - received.get(pid, 0) for pid, count in strokes.items()}
+
+    fewest = min(deciding.values())
+    tied = {pid for pid, count in deciding.items() if count == fewest}
 
     if len(tied) == 1:
         return _hole_result(next(iter(tied)), DecidedBy.STROKES, strokes)
 
     # Levels 2 and 3 are contested only among the players tied on strokes.
-    _require_tied("closest_to_pin", closest_to_pin, tied)
-    _require_tied("longest_drive", longest_drive, tied)
+    _require_tied("closest_to_pin", closest_to_pin, tied, net=bool(received))
+    _require_tied("longest_drive", longest_drive, tied, net=bool(received))
 
     if closest_to_pin is not None:
         return _hole_result(closest_to_pin, DecidedBy.CLOSEST_TO_PIN, strokes)
@@ -109,11 +205,19 @@ def _require_tied(
     argument: str,
     flagged: ParticipantId | None,
     tied: set[ParticipantId],
+    *,
+    net: bool = False,
 ) -> None:
-    """Reject a tie-break argument naming a player who isn't tied on strokes."""
+    """Reject a tie-break argument naming a player who isn't tied on strokes.
+
+    `net` only changes the wording. On a handicap event the tie is on net strokes,
+    and an error saying "fewest strokes" would send whoever reads it to check the
+    gross numbers — where they would find no tie and no bug.
+    """
     if flagged is not None and flagged not in tied:
+        kind = "fewest net strokes" if net else "fewest strokes"
         raise ValueError(
-            f"{argument}={flagged} is not tied for fewest strokes. Only players "
+            f"{argument}={flagged} is not tied for {kind}. Only players "
             f"tied on strokes contest closest to the pin and longest drive; "
             f"tied players are {sorted(str(pid) for pid in tied)}"
         )

@@ -13,10 +13,11 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.round import Group, GroupHole, Round, RoundStatus
+from app.models.tournament import Tournament
 from app.models.score import HoleResult, HoleScore
 from app.repositories.round import RoundRepository
 from app.repositories.score import ScoreRepository
-from app.services.scoring import DecidedBy, score_hole
+from app.services.scoring import DecidedBy, LoopHole, allocate_shots, score_hole
 
 
 class ScoreError(Exception):
@@ -53,12 +54,23 @@ class ScoredHole:
     tied_participants: Sequence[UUID]
 
 
-def _tied_on_strokes(strokes: Mapping[UUID, int]) -> list[UUID]:
-    """Players sharing the fewest strokes — empty when one player is outright."""
+def _tied_on_strokes(
+    strokes: Mapping[UUID, int],
+    strokes_received: Mapping[UUID, int] | None = None,
+) -> list[UUID]:
+    """Players sharing the fewest strokes — empty when one player is outright.
+
+    **Net, where a handicap applies** (ADR-013). This list is what the client asks
+    the closest-to-the-pin question of, so computing it on gross would tell a
+    group nobody could be separated while the engine had just tied them on net —
+    the question would never be asked, and the hole would stand unwon.
+    """
     if not strokes:
         return []
-    fewest = min(strokes.values())
-    tied = [pid for pid, count in strokes.items() if count == fewest]
+    received = strokes_received or {}
+    deciding = {pid: count - received.get(pid, 0) for pid, count in strokes.items()}
+    fewest = min(deciding.values())
+    tied = [pid for pid, count in deciding.items() if count == fewest]
     return tied if len(tied) > 1 else []
 
 
@@ -76,6 +88,7 @@ class ScoreEntryService:
         strokes: Mapping[UUID, int],
         closest_to_pin: UUID | None = None,
         longest_drive: UUID | None = None,
+        tournament: Tournament | None = None,
     ) -> ScoredHole:
         """Score one hole for a group and persist both the strokes and the result.
 
@@ -97,9 +110,16 @@ class ScoreEntryService:
         self._require_hole_in_loop(group, hole_id)
         self._require_complete_card(group, strokes)
 
+        received = (
+            await self._shots_for_hole(group, hole_id)
+            if tournament is not None and tournament.handicap_enabled
+            else {}
+        )
+
         try:
             outcome = score_hole(
                 strokes,
+                strokes_received=received,
                 closest_to_pin=closest_to_pin,
                 longest_drive=longest_drive,
             )
@@ -113,6 +133,7 @@ class ScoreEntryService:
             hole_id=hole_id,
             strokes=strokes,
             points=outcome.points,
+            strokes_received=received,
             winner_participant_id=outcome.winner,
             decided_by=outcome.decided_by,
             closest_to_pin=(
@@ -126,7 +147,9 @@ class ScoreEntryService:
         return ScoredHole(
             result=result,
             scores=await self._scores.list_scores_for_hole(group.id, hole_id),
-            tied_participants=_tied_on_strokes(strokes) if outcome.winner is None else [],
+            tied_participants=(
+                _tied_on_strokes(strokes, received) if outcome.winner is None else []
+            ),
         )
 
     async def get_card(self, group: Group) -> list[ScoredHole]:
@@ -149,13 +172,55 @@ class ScoreEntryService:
                     result=result,
                     scores=hole_scores,
                     tied_participants=(
-                        _tied_on_strokes({s.participant_id: s.strokes for s in hole_scores})
+                        _tied_on_strokes(
+                            {s.participant_id: s.strokes for s in hole_scores},
+                            # The shots that applied on the day, read back rather
+                            # than recomputed — a card reopened after a handicap
+                            # was corrected must still show what the group was told.
+                            {s.participant_id: s.strokes_received for s in hole_scores},
+                        )
                         if result.winner_participant_id is None
                         else []
                     ),
                 )
             )
         return card
+
+    async def _shots_for_hole(self, group: Group, hole_id: UUID) -> dict[UUID, int]:
+        """Shots each member receives on this hole (ADR-013).
+
+        Allocated across the whole loop and then narrowed to one hole, because
+        that is what dealing hardest-first means — you cannot know whether *this*
+        hole gets a shot without knowing the other two.
+
+        Recomputed per submission rather than stored at the draw. Handicaps are
+        frozen once play starts, so it cannot change under a group mid-round, and
+        recomputing means a correction re-derives the same answer instead of
+        carrying a stale one forward.
+
+        A missing stroke index or handicap is treated as unreachable rather than
+        guessed: `RoundService.draw_round` refuses to start a handicap event with
+        either one absent, so arriving here means the draw let it through.
+        """
+        loop = [
+            LoopHole(hole_id=each_id, stroke_index=stroke_index)
+            for each_id, stroke_index in await self._scores.loop_for_allocation(group.id)
+            if stroke_index is not None
+        ]
+        handicaps = {
+            participant_id: handicap
+            for participant_id, handicap in (
+                await self._scores.handicaps_for_group(group.id)
+            ).items()
+            if handicap is not None
+        }
+        if not loop or not handicaps:
+            return {}
+
+        allocation = allocate_shots(handicaps, loop)
+        return {
+            participant_id: holes.get(hole_id, 0) for participant_id, holes in allocation.items()
+        }
 
     @staticmethod
     def _require_hole_in_loop(group: Group, hole_id: UUID) -> None:
