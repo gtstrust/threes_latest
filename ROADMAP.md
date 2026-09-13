@@ -68,7 +68,8 @@ Scoring rules are settled — see ADR-007. Holes are never halved; a hole has on
 decided by strokes → closest to the pin → longest drive on the fairway. Points are integers.
 The leaderboard breaks level players on fewest total strokes, so the organiser never has to enter
 a per-hole difficulty ranking. `stroke_index` is still on `Hole` — nullable and unused by MVP
-scoring — kept ready for Phase 3 handicaps.
+scoring — kept ready for Phase 3 handicaps, which ADR-013 now specifies: it is what shots are dealt
+by, and the one piece of course data a handicap event cannot start without.
 
 ### Frontend
 
@@ -135,10 +136,22 @@ picked up.
 
 **Product & platform**
 
-- **Handicaps / net scoring.** ADR-002 keeps raw strokes as the only thing the client submits and
-  derives all points server-side, so net scoring can be added without changing score entry or
-  re-migrating stored scores. A per-event playing handicap belongs on the participant, not the
-  player, since it can differ between events.
+- **Handicaps / net scoring — the rule is decided, see ADR-013.** A playing handicap is pro-rated
+  to the three-hole loop, dealt to the loop's holes hardest-first by `stroke_index`, and ADR-007's
+  cascade then runs unchanged on net strokes. ADR-002 keeps raw strokes as the only thing the client
+  submits and derives all points server-side, so this needs **no change to score entry and no
+  re-migration of stored scores** — the promise ADR-007 recorded, collected. Three columns carry it:
+  `tournaments.handicap_enabled`, `tournament_participants.playing_handicap` (per event, not per
+  player, since it differs between them and a Virtual Player has no `players` row) and
+  `hole_scores.strokes_received`, which is 0 on every row of a scratch event and is what makes it
+  provable that nothing about one changed. `rank_leaderboard` and `decide_advancement` need no edit
+  at all.
+
+  **The blocker is not the engine, it is the data.** `stroke_index` has been accepted by
+  `PUT /courses/{id}/holes` since migration `0002` and is **null in every row** — the course setup
+  screen posts bare hole numbers and `useUpsertHoles` does not even type the field. A course hole
+  editor (`docs/SCREENS.md` #4, "My courses") is therefore a **hard dependency** of handicaps, not a
+  nicety alongside them. Nothing can be allocated until a stroke index can be entered.
 - Native iOS/Android builds (ADR-006)
 - Offline-first score sync — pending submissions queued locally, last-write-wins conflict
   resolution (ADR-005). Revisited **only if** pilot feedback shows on-course connectivity is

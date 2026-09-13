@@ -183,7 +183,12 @@ a hole entered with the wrong par or stroke index stays wrong forever, on shared
 other organisers will point their events at.
 
 **Backend needed:** none. `require_course_owner` and `PUT /courses/{id}/holes` are built and tested;
-nothing in the UI reaches them outside event setup.
+nothing in the UI reaches them outside event setup — and `useUpsertHoles` does not even type
+`stroke_index`, so the narrowing is on the client alone.
+
+**This screen is a hard dependency of handicaps (ADR-013)**, which deals a player's shots by stroke
+index. Until something can enter one, no handicap event can be drawn. That promotes #4 from a
+tidiness fix to a prerequisite for a named Phase 3 feature.
 
 ### 5. My event, while it is running — player, Phase 2
 
@@ -213,8 +218,9 @@ is whether the format and the fee work at all.
 ### 8. Improvement by hole — player, Phase 3
 
 `notes` asks to track improvement "by hole, by course, overall"; two of the three are built. Per-hole
-pairs naturally with handicaps — `stroke_index` is already captured on every hole, unused, waiting
-for exactly this.
+pairs naturally with handicaps — but note `stroke_index` is *accepted* on every hole rather than
+captured on one: the API has taken it since migration `0002` and no screen has ever sent one, so
+every stored value is null. Screen #4 is what would change that, and ADR-013 is what would read it.
 
 ## The two roles with no data model
 
