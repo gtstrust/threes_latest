@@ -473,6 +473,31 @@ on a scratch event is the proof that nothing moved** — the same device as `rou
 a round robin, and the null advancement columns on a round-robin group. A constant makes "the
 existing behaviour is unchanged" provable rather than argued.
 
+**Optional everywhere, and off by default — for fun rounds as much as tournaments.** Handicaps are
+never implied by anything: not by a format, not by a course having stroke indices, not by one
+participant having a handicap recorded. `handicap_enabled` is false unless somebody sets it, and a
+scratch event is bit-for-bit the event it is today. A fun round is a `tournaments` row
+(`kind = FUN_ROUND`), so it inherits the column the same way it inherits the draw, the cascade and
+the leaderboard — and `FunRoundService.start` delegates to `RoundService.draw_round`, so both
+draw-time refusals apply to a fun round without a second implementation.
+
+**Inheriting the column is not the same as being able to set it**, and this is the part easy to get
+wrong: `FunRoundService.create` narrows its payload by hand to `name` and `course_id`, so a fun
+round would carry `handicap_enabled` and have no way on earth to turn it on. `FunRoundCreate` has to
+plumb it through explicitly, as does the host's setup screen.
+
+**Who types the number differs between the two**, because the field is assembled differently. A
+tournament organiser owns the field and sets each participant's handicap on it. A fun round has no
+organiser managing anyone — mates join themselves by link — so a player supplies their own handicap
+when they join, and the host supplies one for each Virtual Player they add. Same column, two doors.
+
+**A fun round checks its stroke indices at setup, not at the draw.** `create` already validates the
+hole selection immediately rather than deferring it, because deferring "would surface it at the
+first tee, with the group already assembled". The identical argument covers a missing stroke index:
+four mates who ticked handicaps and walked to the tee should not discover there that the course has
+no indices. The draw's refusal stays as the backstop — it is the same check — but for a fun round
+the honest place to fail is the setup form.
+
 **Nothing about score entry changes**, which is ADR-002's promise being collected rather than a
 convenience. The client goes on submitting raw strokes and only raw strokes; the server allocates,
 decides and stores. `rank_leaderboard` and `decide_advancement` need no edit at all — both rank on
