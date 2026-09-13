@@ -11,6 +11,7 @@
 
 import { StrictMode, type ReactNode } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { getSession, onAuthStateChange, post } = vi.hoisted(() => ({
@@ -48,13 +49,17 @@ async function renderApp(wrap: (ui: ReactNode) => ReactNode = (ui) => ui) {
   const { SessionProvider } = await import('./session');
   const { RequireAuth } = await import('./RequireAuth');
   return render(
-    wrap(
-      <SessionProvider>
-        <RequireAuth>
-          <p>Signed in</p>
-        </RequireAuth>
-      </SessionProvider>,
-    ),
+    // A Router because the signed-out branch renders LoginPage, which links to
+    // the public explainer. In the app this provider always sits inside one.
+    <MemoryRouter>
+      {wrap(
+        <SessionProvider>
+          <RequireAuth>
+            <p>Signed in</p>
+          </RequireAuth>
+        </SessionProvider>,
+      )}
+    </MemoryRouter>,
   );
 }
 

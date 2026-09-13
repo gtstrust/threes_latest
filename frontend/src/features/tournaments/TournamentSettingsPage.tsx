@@ -11,6 +11,7 @@
 import { useState, type FormEvent } from 'react';
 
 import { Card, ErrorNote, Loading, Page } from '../../components/ui';
+import { HelpPanel } from '../help/HelpPanel';
 import { useCourse, useCourses, useTournament, useUpdateTournament } from '../../lib/queries';
 import { useSession } from '../auth/session-context';
 import type { GroupSize, LoopStyle, TournamentFormat, UUID } from '../../lib/types';
@@ -42,6 +43,8 @@ export function TournamentSettingsPage({ tournamentId }: { tournamentId: UUID })
 
   return (
     <Page title="Event settings" back={{ to: `/t/${tournamentId}`, label: 'Tournament' }}>
+      <HelpPanel topic="draw-settings" />
+
       <SettingsForm
         tournamentId={tournamentId}
         name={tournament.data.name}

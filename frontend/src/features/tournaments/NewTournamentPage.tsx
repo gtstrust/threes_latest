@@ -11,6 +11,7 @@ import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { Card, ErrorNote, Page } from '../../components/ui';
+import { HelpPanel } from '../help/HelpPanel';
 import { useCoursePicker } from '../courses/CoursePicker';
 import { useCreateTournament } from '../../lib/queries';
 import type { TournamentFormat } from '../../lib/types';
@@ -58,6 +59,8 @@ export function NewTournamentPage() {
 
   return (
     <Page title="New tournament" back={{ to: '/', label: 'Tournaments' }}>
+      <HelpPanel topic="formats" />
+
       <Card>
         <form onSubmit={onSubmit}>
           <label htmlFor="name">Tournament name</label>

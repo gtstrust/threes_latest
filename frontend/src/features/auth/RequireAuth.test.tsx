@@ -8,6 +8,7 @@
  */
 
 import { render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import type { Session } from '@supabase/supabase-js';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -41,11 +42,15 @@ function renderGate(state: Partial<SessionState>) {
     ...state,
   };
   return render(
-    <SessionContext.Provider value={value}>
-      <RequireAuth>
-        <p>the app</p>
-      </RequireAuth>
-    </SessionContext.Provider>,
+    // A Router because the signed-out branch renders LoginPage, which links to
+    // the public explainer.
+    <MemoryRouter>
+      <SessionContext.Provider value={value}>
+        <RequireAuth>
+          <p>the app</p>
+        </RequireAuth>
+      </SessionContext.Provider>
+    </MemoryRouter>,
   );
 }
 

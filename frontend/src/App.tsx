@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom';
+import { BrowserRouter, Navigate, Outlet, Route, Routes, useParams } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { RequireAuth } from './features/auth/RequireAuth';
@@ -15,6 +15,7 @@ import { JoinPage } from './features/join/JoinPage';
 import { StatsPage } from './features/stats/StatsPage';
 import { ScorecardPage } from './features/scoring/ScorecardPage';
 import { TournamentSettingsPage } from './features/tournaments/TournamentSettingsPage';
+import { HowItWorksPage } from './features/help/HowItWorksPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -98,8 +99,23 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <SessionProvider>
-          <RequireAuth>
-            <Routes>
+          <Routes>
+            {/* The one public route. Somebody handed an invitation wants to know
+                what Threes is *before* they have an account, so the answer must
+                not sit behind the thing they are deciding whether to do. It
+                carries no player, event or score data. */}
+            <Route path="/how-it-works" element={<HowItWorksPage />} />
+
+            {/* Everything else. A pathless layout route, so the guard wraps the
+                whole app exactly as it did when it sat outside `Routes` — and
+                every path below is untouched. */}
+            <Route
+              element={
+                <RequireAuth>
+                  <Outlet />
+                </RequireAuth>
+              }
+            >
               <Route path="/" element={<HomePage />} />
               <Route path="/new" element={<NewTournamentPage />} />
               {/* Short paths on purpose: these get shared by text message on the
@@ -122,8 +138,8 @@ export default function App() {
                   other player's record this route could name. */}
               <Route path="/me" element={<StatsPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </RequireAuth>
+            </Route>
+          </Routes>
         </SessionProvider>
       </BrowserRouter>
     </QueryClientProvider>
