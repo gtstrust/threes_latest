@@ -14,10 +14,13 @@ from app.services.scoring import (
     DecidedBy,
     GroupStanding,
     LeaderboardRow,
+    LoopHole,
     ParticipantTotals,
+    allocate_shots,
     decide_advancement,
     rank_leaderboard,
     score_hole,
+    shots_for_loop,
 )
 
 A = uuid.uuid4()
@@ -359,3 +362,130 @@ def test_rounds_survived_leads_the_ranking_only_when_it_is_set() -> None:
         row.participant_id
         for row in rank_leaderboard([ParticipantTotals(A, 2, 30), ParticipantTotals(B, 5, 28)])
     ] == [B, A]
+
+
+# ---------------------------------------------------------------------------
+# Handicap allocation and net scoring (ADR-013)
+# ---------------------------------------------------------------------------
+
+HOLE_1 = uuid.uuid4()
+HOLE_2 = uuid.uuid4()
+HOLE_3 = uuid.uuid4()
+
+# Holes 1, 2 and 3 of a loop, hardest first being 1 (SI 3), then 3 (SI 11), then
+# 2 (SI 14) — deliberately not in hole order, because stroke index is what deals.
+LOOP = [
+    LoopHole(hole_id=HOLE_1, stroke_index=3),
+    LoopHole(hole_id=HOLE_2, stroke_index=14),
+    LoopHole(hole_id=HOLE_3, stroke_index=11),
+]
+
+
+@pytest.mark.parametrize(
+    ("handicap", "shots"),
+    [(0, 0), (2, 0), (3, 1), (8, 1), (9, 2), (18, 3), (24, 4), (54, 9)],
+)
+def test_a_handicap_is_pro_rated_to_the_loop(handicap: int, shots: int) -> None:
+    # Three holes of eighteen, rounded half up: 3 is exactly 0.5 and goes to 1.
+    assert shots_for_loop(handicap, 3) == shots
+
+
+def test_pro_rating_uses_eighteen_whatever_the_course_holds() -> None:
+    # The handicap is quoted against eighteen holes, so a club with nine entered
+    # does not halve everybody's allowance.
+    assert shots_for_loop(18, 3) == 3
+    assert shots_for_loop(18, 9) == 9
+
+
+def test_shots_are_dealt_to_the_hardest_holes_first() -> None:
+    # Two shots over three holes go to the two hardest — 1 (SI 3) and 3 (SI 11).
+    assert allocate_shots({A: 9}, LOOP)[A] == {HOLE_1: 1, HOLE_3: 1, HOLE_2: 0}
+
+
+def test_shots_wrap_the_loop_when_there_are_more_than_holes() -> None:
+    # Four shots: everyone gets one, and the hardest gets the extra.
+    assert allocate_shots({A: 24}, LOOP)[A] == {HOLE_1: 2, HOLE_3: 1, HOLE_2: 1}
+
+
+def test_every_hole_gets_an_entry_even_at_zero() -> None:
+    # So a caller never has to tell "no shot here" from "not in the mapping".
+    assert allocate_shots({A: 0}, LOOP)[A] == {HOLE_1: 0, HOLE_2: 0, HOLE_3: 0}
+
+
+def test_holes_sharing_a_stroke_index_deal_deterministically() -> None:
+    # Nothing stops a course having two holes on the same index, and the same card
+    # must allocate the same way however the loop was ordered coming in.
+    first = uuid.UUID(int=1)
+    second = uuid.UUID(int=2)
+    forwards = [LoopHole(first, 5), LoopHole(second, 5), LoopHole(HOLE_3, 11)]
+
+    assert allocate_shots({A: 9}, forwards) == allocate_shots({A: 9}, list(reversed(forwards)))
+
+
+def test_allocation_rejects_a_loop_with_no_holes() -> None:
+    with pytest.raises(ValueError, match="no holes"):
+        allocate_shots({A: 12}, [])
+
+
+def test_allocation_rejects_a_negative_handicap() -> None:
+    # Plus handicaps are out of scope (ADR-013) — a +2 pro-rates to zero shots over
+    # three holes anyway, so the column would carry a sign that changes nothing.
+    with pytest.raises(ValueError, match="cannot be negative"):
+        allocate_shots({A: -2}, LOOP)
+
+
+def test_a_net_winner_takes_a_hole_they_lost_on_gross() -> None:
+    result = score_hole({A: 5, B: 6}, strokes_received={A: 0, B: 2})
+
+    # B took more strokes and still wins it: 6 - 2 is 4, against A's 5.
+    assert result.winner == B
+    assert result.decided_by is DecidedBy.STROKES
+    assert result.points == {A: 0, B: 1}
+
+
+def test_shots_can_create_a_tie_that_gross_did_not_have() -> None:
+    result = score_hole({A: 4, B: 5}, strokes_received={B: 1}, closest_to_pin=B)
+
+    # Level on net, so the cascade drops to level 2 — which gross would never have
+    # reached.
+    assert result.winner == B
+    assert result.decided_by is DecidedBy.CLOSEST_TO_PIN
+
+
+def test_a_player_absent_from_the_allocation_receives_nothing() -> None:
+    result = score_hole({A: 4, B: 4}, strokes_received={B: 1})
+
+    assert result.winner == B
+
+
+def test_net_may_be_zero_or_negative() -> None:
+    # Three shots on a three. A player owed more shots than they took has played it
+    # that well, and there is no floor on net — only on the gross a group reports.
+    result = score_hole({A: 3, B: 7}, strokes_received={A: 3, B: 1})
+
+    assert result.winner == A
+    assert result.points == {A: 1, B: 0}
+
+
+def test_gross_strokes_below_one_are_still_rejected() -> None:
+    # The allocation is the server's; the strokes are the group's, and a group
+    # cannot hole out in zero however many shots they are owed.
+    with pytest.raises(ValueError, match="Strokes must be 1 or more"):
+        score_hole({A: 0, B: 4}, strokes_received={A: 2})
+
+
+def test_the_tie_break_guard_says_net_when_a_handicap_applied() -> None:
+    # An error reading "fewest strokes" would send the reader to check the gross
+    # numbers, where they would find no tie and no bug.
+    with pytest.raises(ValueError, match="fewest net strokes"):
+        score_hole({A: 4, B: 5}, strokes_received={B: 1}, closest_to_pin=C)
+
+
+def test_a_scratch_event_is_the_function_it_always_was() -> None:
+    # The guard that the default did not move: an empty allocation, an absent one,
+    # and no argument at all must all be the same hole.
+    plain = score_hole({A: 4, B: 4, C: 5}, closest_to_pin=A)
+
+    assert score_hole({A: 4, B: 4, C: 5}, strokes_received={}, closest_to_pin=A) == plain
+    assert score_hole({A: 4, B: 4, C: 5}, strokes_received=None, closest_to_pin=A) == plain
+    assert plain.winner == A

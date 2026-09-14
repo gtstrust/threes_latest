@@ -68,8 +68,8 @@ Scoring rules are settled — see ADR-007. Holes are never halved; a hole has on
 decided by strokes → closest to the pin → longest drive on the fairway. Points are integers.
 The leaderboard breaks level players on fewest total strokes, so the organiser never has to enter
 a per-hole difficulty ranking. `stroke_index` is still on `Hole` — nullable and unused by MVP
-scoring — kept ready for Phase 3 handicaps, which ADR-013 now specifies: it is what shots are dealt
-by, and the one piece of course data a handicap event cannot start without.
+scoring — and unused by a scratch event still. ADR-013 has since given it a reader: it is what shots
+are dealt by, and the one piece of course data a handicap event cannot start without.
 
 ### Frontend
 
@@ -87,11 +87,33 @@ stack changed from Flutter; web-only itself was never in question.
 **Magic-link login has been used against the real project** — the courses, tournaments and fun
 rounds in the development database were all created through these screens, so the ES256/JWKS path
 is proven end to end, not just unit-tested. What has *not* happened is a deployment: everything
-still runs on `localhost`, which is the remaining blocker for the Phase 1 milestone.
+has since been deployed — `docs/DEPLOYMENT.md` is the source of truth for what is live, and the
+backend is. The remaining blocker for the Phase 1 milestone is the golf day itself.
 
 Slice 4 is the one to get right: score entry is a conversation, not a form. Strokes go in, and if
 they tie the API answers with `tied_participants` — the app then asks *only those players* who was
 closest to the pin, and re-posts the same hole with the answer.
+
+### Handicaps ✅ *built*
+
+Pulled forward out of Phase 3 by an explicit decision, before the pilot rather than after it. A
+playing handicap is pro-rated to the three-hole loop, dealt to its holes hardest-first by
+`stroke_index`, and ADR-007's cascade then runs unchanged on **net** strokes — which is what kept
+the change small: `DecidedBy` keeps its four labels, points stay 0/1, and `rank_leaderboard` and
+`decide_advancement` were not edited at all.
+
+Three columns carry it: `tournaments.handicap_enabled`, `tournament_participants.playing_handicap`
+and `hole_scores.strokes_received`. The last defaults to 0, which is what makes a scratch event
+provably the event it always was — `test_a_scratch_event_is_the_event_it_always_was` is the
+assertion, and the reason to trust a change that touches three rankings at once.
+
+The draw refuses a handicap event with a hole missing a stroke index or a player missing an
+allowance, naming both. `PATCH /tournaments/{id}/participants/{id}` is new — there was no way to
+edit a participant at all before this needed one.
+
+**The course hole editor shipped with it**, because nothing could have worked without it:
+`stroke_index` had been accepted by the API since migration `0002` and never once sent, so every
+stored value was null. See **ADR-013** in `CLAUDE.md`.
 
 ### Knockout brackets ✅ *built*
 
@@ -108,7 +130,7 @@ This was out of scope for MVP and was opened up exactly as predicted: `SUPPORTED
 schema change was the pair of advancement columns on `groups`.
 
 **Seeding is still out of scope** — the bracket re-randomises each round rather than carrying a
-structure forward, because there is no handicap or ranking to seed *from* until Phase 3, and a
+structure forward, because there was no handicap or ranking to seed *from* when it was built, and a
 bracket seeded on registration order would look meaningful while carrying nothing.
 
 ---
@@ -135,6 +157,10 @@ features alongside the commercial build. Pursued after Phase 2, and each planned
 picked up.
 
 **Product & platform**
+
+- ~~**Handicaps / net scoring**~~ — **built**, ahead of the phase boundary and deliberately. See
+  the Handicaps section above Phase 3 for what shipped. The entry below is kept because the design
+  is still the design; only its status changed.
 
 - **Handicaps / net scoring — the rule is decided, see ADR-013.** A playing handicap is pro-rated
   to the three-hole loop, dealt to the loop's holes hardest-first by `stroke_index`, and ADR-007's

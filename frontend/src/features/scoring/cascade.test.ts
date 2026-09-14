@@ -29,9 +29,9 @@ function result(over: Partial<HoleResult>): HoleResult {
     closest_to_pin_participant_id: null,
     longest_drive_participant_id: null,
     scores: [
-      { participant_id: A, strokes: 4, points: 0 },
-      { participant_id: B, strokes: 4, points: 0 },
-      { participant_id: C, strokes: 5, points: 0 },
+      { participant_id: A, strokes: 4, points: 0, strokes_received: 0 },
+      { participant_id: B, strokes: 4, points: 0, strokes_received: 0 },
+      { participant_id: C, strokes: 5, points: 0, strokes_received: 0 },
     ],
     tied_participants: [],
     created_at: '',
@@ -46,9 +46,9 @@ describe('an outright winner', () => {
       winner_participant_id: A,
       decided_by: 'strokes',
       scores: [
-        { participant_id: A, strokes: 3, points: 1 },
-        { participant_id: B, strokes: 5, points: 0 },
-        { participant_id: C, strokes: 4, points: 0 },
+        { participant_id: A, strokes: 3, points: 1, strokes_received: 0 },
+        { participant_id: B, strokes: 5, points: 0, strokes_received: 0 },
+        { participant_id: C, strokes: 4, points: 0, strokes_received: 0 },
       ],
     });
 
@@ -92,9 +92,9 @@ describe('a tie on strokes', () => {
     const hole = result({
       tied_participants: [A, B, C],
       scores: [
-        { participant_id: A, strokes: 4, points: 0 },
-        { participant_id: B, strokes: 4, points: 0 },
-        { participant_id: C, strokes: 4, points: 0 },
+        { participant_id: A, strokes: 4, points: 0, strokes_received: 0 },
+        { participant_id: B, strokes: 4, points: 0, strokes_received: 0 },
+        { participant_id: C, strokes: 4, points: 0, strokes_received: 0 },
       ],
     });
 

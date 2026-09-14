@@ -87,6 +87,7 @@ class TournamentRepository:
             max_players=payload.max_players,
             group_size=payload.group_size,
             loop_style=payload.loop_style,
+            handicap_enabled=payload.handicap_enabled,
             hole_numbers=list(hole_numbers) if hole_numbers is not None else None,
             scheduled_at=payload.scheduled_at,
             status=TournamentStatus.CREATED,

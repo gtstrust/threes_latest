@@ -23,8 +23,14 @@ class HoleScoreRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     participant_id: UUID
+    #: Gross — what the group counted and reported.
     strokes: int
     points: int
+    #: Shots this player's handicap gave them here (ADR-013). Net is
+    #: `strokes - strokes_received`. A plain int rather than null-when-absent:
+    #: unlike `net_strokes` on the board, zero is a real answer on a handicap
+    #: event — no shot on this hole — so a null would be the ambiguous one.
+    strokes_received: int = 0
 
 
 class HoleResultRead(BaseModel):

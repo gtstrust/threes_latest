@@ -49,6 +49,15 @@ class TournamentCreate(BaseModel):
     )
     course_id: UUID | None = None
     scheduled_at: datetime | None = None
+    handicap_enabled: bool = Field(
+        default=False,
+        description=(
+            "Deal each player shots from their playing handicap and decide holes "
+            "on net strokes (ADR-013). Off unless asked for. With it on, every "
+            "hole played needs a stroke index and every player needs a handicap, "
+            "both checked when the round is drawn."
+        ),
+    )
 
     @field_validator("format")
     @classmethod
@@ -78,6 +87,7 @@ class TournamentUpdate(BaseModel):
     # there is no such thing as an event with no group size or no start style.
     group_size: GroupSize | None = None
     loop_style: LoopStyle | None = None
+    handicap_enabled: bool | None = None
     course_id: UUID | None = None
     scheduled_at: datetime | None = None
 
@@ -86,14 +96,14 @@ class TournamentUpdate(BaseModel):
         """Refuse an explicit null for the two settings that have no empty value.
 
         `course_id` and `max_players` are genuinely clearable, so the repository
-        writes whatever `exclude_unset` lets through. These two are not: the
-        columns are NOT NULL, and an event with no group size or no start style
-        describes nothing. Without this the null reaches `setattr` and surfaces
+        writes whatever `exclude_unset` lets through. These three are not: the
+        columns are NOT NULL, and an event with no group size, no start style or
+        no answer on handicaps describes nothing. Without this the null reaches `setattr` and surfaces
         as an integrity error — a 500 for what is a malformed request.
         """
         cleared = [
             field
-            for field in ("group_size", "loop_style")
+            for field in ("group_size", "loop_style", "handicap_enabled")
             if field in self.model_fields_set and getattr(self, field) is None
         ]
         if cleared:
@@ -122,6 +132,7 @@ class TournamentRead(BaseModel):
     max_players: int | None
     group_size: int
     loop_style: LoopStyle
+    handicap_enabled: bool
     scheduled_at: datetime | None
     created_at: datetime
     updated_at: datetime

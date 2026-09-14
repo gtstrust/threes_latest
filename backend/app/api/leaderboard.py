@@ -62,7 +62,9 @@ async def read_round_leaderboard(
 
     await require_can_view(tournament, current_user, participants)
 
-    entries = await leaderboard.for_round(round_)
+    # The round does not carry the event's settings, and the flag is a fact about
+    # the event — so it comes off the tournament this route already fetched.
+    entries = await leaderboard.for_round(round_, handicapped=tournament.handicap_enabled)
     return LeaderboardRead(
         tournament_id=tournament.id,
         round_id=round_.id,

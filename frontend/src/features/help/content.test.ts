@@ -98,6 +98,7 @@ describe('the screen help', () => {
       'formats',
       'draw-settings',
       'fun-round',
+      'handicaps',
     ]) {
       expect(TOPICS, key).toHaveProperty(key);
     }

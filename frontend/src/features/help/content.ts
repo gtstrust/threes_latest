@@ -109,6 +109,17 @@ export const STEPS: Step[] = [
   },
 
   {
+    id: 'handicaps',
+    track: 'player',
+    title: 'Handicaps, if your event uses them',
+    body: [
+      'Most events are scratch: lowest gross wins the hole, and that is the whole rule. Some are not.',
+      'On a handicap event your playing handicap is pro-rated to the three holes you are playing, and those shots are dealt to the hardest of them first — the stroke index a club prints on its card.',
+      'Your net score on a hole is what you took, less any shot you got there. Everything else is unchanged: the hole still has exactly one winner, the tie-break questions are still the same two, and the board still splits level players on fewest strokes — net ones.',
+      'You will see both numbers everywhere. Gross is what your group counted; net is what decided it.',
+    ],
+  },
+  {
     id: 'setup',
     track: 'organiser',
     title: 'Setting up an event',
@@ -224,6 +235,14 @@ export const TOPICS: Record<string, Topic> = {
       'Blocks cuts the course into 3-hole loops. A shotgun makes every hole a starting tee, so more groups go off at once.',
     ],
     step: 'formats',
+  },
+  handicaps: {
+    title: 'Handicaps on this event',
+    body: [
+      'Shots come off a gross score, dealt to the hardest holes of the loop by stroke index.',
+      'Every player needs a handicap and every hole being played needs a stroke index. The draw says so, by name, if either is missing.',
+    ],
+    step: 'handicaps',
   },
   'fun-round': {
     title: 'Fun rounds',

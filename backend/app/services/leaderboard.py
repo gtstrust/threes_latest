@@ -28,12 +28,19 @@ class LeaderboardEntry:
     participant_id: UUID
     display_name: str
     points: int
+    #: **Gross** — what the group actually reported. Unchanged in meaning, so a
+    #: client that predates handicaps still reads the number it expects.
     total_strokes: int
     holes_played: int
     #: How many rounds this player was alive for (ADR-012). **None on a round
     #: robin**, where nobody is knocked out and the figure would mean nothing —
     #: not 0, which would read as "went out immediately".
     rounds_survived: int | None = None
+    #: Gross less the shots their handicap gave them (ADR-013), and what the
+    #: ranking above actually used. **None on a scratch event** — following
+    #: `rounds_survived` rather than sending a number equal to `total_strokes`,
+    #: which would read as a real net figure rather than as "not applicable".
+    net_strokes: int | None = None
 
 
 class LeaderboardService:
@@ -58,7 +65,7 @@ class LeaderboardService:
             if tournament.format is TournamentFormat.KNOCKOUT
             else None
         )
-        return _rank(field, totals, progress)
+        return _rank(field, totals, progress, handicapped=tournament.handicap_enabled)
 
     async def _survived(self, tournament_id: UUID) -> dict[UUID, int]:
         """Rounds each player was still alive for.
@@ -74,8 +81,15 @@ class LeaderboardService:
             ).items()
         }
 
-    async def for_round(self, round_: Round) -> list[LeaderboardEntry]:
+    async def for_round(
+        self, round_: Round, *, handicapped: bool = False
+    ) -> list[LeaderboardEntry]:
         """Standings for a single round, over the players drawn into it.
+
+        `handicapped` comes off the tournament, which this does not hold — it
+        decides whether a net column is reported at all, and is a fact about the
+        *event* rather than about any player. Defaulting it to false keeps every
+        existing caller correct.
 
         Today the draw always covers the whole field, so this matches
         `for_tournament`'s membership — but it is taken from the draw rather than
@@ -89,7 +103,11 @@ class LeaderboardService:
         field = await self._participants.list_for_tournament(round_.tournament_id)
         drawn = await self._round_field(round_.id)
         totals = await self._scores.totals_for_round(round_.id)
-        return _rank([player for player in field if player.id in drawn], totals)
+        return _rank(
+            [player for player in field if player.id in drawn],
+            totals,
+            handicapped=handicapped,
+        )
 
     async def _round_field(self, round_id: UUID) -> set[UUID]:
         round_with_groups = await self._rounds.get_with_groups(round_id)
@@ -104,6 +122,8 @@ def _rank(
     field: Sequence[TournamentParticipant],
     totals: dict[UUID, ScoreTotals],
     progress: Mapping[UUID, int] | None = None,
+    *,
+    handicapped: bool = False,
 ) -> list[LeaderboardEntry]:
     """Zero-fill the field, rank it, and put the names back on.
 
@@ -117,7 +137,7 @@ def _rank(
     and strokes come out in input order. Ranking the aggregate's mapping order
     instead would leave genuinely-tied players shuffling between requests.
     """
-    empty = ScoreTotals(points=0, strokes=0, holes_played=0)
+    empty = ScoreTotals(points=0, strokes=0, holes_played=0, strokes_received=0)
     scored = {player.id: totals.get(player.id, empty) for player in field}
     names = {player.id: player.display_name for player in field}
 
@@ -128,7 +148,11 @@ def _rank(
         ParticipantTotals(
             participant_id=player.id,
             points=scored[player.id].points,
-            total_strokes=scored[player.id].strokes,
+            # Net (ADR-013). The tie-break is "fewest total strokes", and on a
+            # handicap event that is the net figure. A scratch event received no
+            # shots, so this is the same number it always was — which is what
+            # makes it provable that nothing about one changed.
+            total_strokes=scored[player.id].net_strokes,
             rounds_survived=progress.get(player.id, 0) if progress is not None else 0,
         )
         for player in field
@@ -140,9 +164,18 @@ def _rank(
             participant_id=row.participant_id,
             display_name=names[row.participant_id],
             points=row.points,
-            total_strokes=row.total_strokes,
+            # The board *ranked* on net, but reports gross alongside it: gross is
+            # what the group counted and will argue about, net is what decided it,
+            # and showing only one of them would make the other unavailable to
+            # anybody checking a card.
+            total_strokes=scored[row.participant_id].strokes,
             holes_played=scored[row.participant_id].holes_played,
             rounds_survived=row.rounds_survived if progress is not None else None,
+            # A property of the *event*, not of the player. A scratch player on a
+            # handicap day has a net score — it just equals their gross — and
+            # blanking their cell while everyone else showed one would read as
+            # missing data rather than as nought shots received.
+            net_strokes=row.total_strokes if handicapped else None,
         )
         for row in rows
     ]

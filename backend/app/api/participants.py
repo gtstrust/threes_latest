@@ -11,7 +11,12 @@ from app.core.deps import (
 )
 from app.models.participant import TournamentParticipant
 from app.models.tournament import Tournament
-from app.schemas.participant import ParticipantRead, SelfRegister, VirtualPlayerCreate
+from app.schemas.participant import (
+    ParticipantRead,
+    ParticipantUpdate,
+    SelfRegister,
+    VirtualPlayerCreate,
+)
 from app.services.participant import (
     AlreadyRegistered,
     FieldFull,
@@ -60,7 +65,7 @@ async def register_self(
     reject_fun_round(tournament)
     try:
         participant = await participants.self_register(
-            tournament, current_user, payload.display_name
+            tournament, current_user, payload.display_name, payload.playing_handicap
         )
     except PlayerProfileMissing:
         raise HTTPException(
@@ -85,7 +90,9 @@ async def add_virtual_player(
     reject_fun_round(tournament)
     require_organiser(tournament, current_user)
     try:
-        participant = await participants.add_virtual_player(tournament, payload.display_name)
+        participant = await participants.add_virtual_player(
+            tournament, payload.display_name, payload.playing_handicap
+        )
     except FieldLocked as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return ParticipantRead.model_validate(participant)
@@ -111,6 +118,36 @@ async def list_participants(
         )
 
     return [ParticipantRead.model_validate(entry) for entry in field]
+
+
+@router.patch("/{participant_id}", response_model=ParticipantRead)
+async def update_participant(
+    tournament_id: UUID,
+    participant_id: UUID,
+    payload: ParticipantUpdate,
+    current_user: CurrentUserDep,
+    tournaments: TournamentServiceDep,
+    participants: ParticipantServiceDep,
+) -> ParticipantRead:
+    """Set a player's playing handicap for this event (ADR-013).
+
+    Organiser-only and allowed until play starts, the same window and the same
+    guard as adding or removing a player — shots are dealt from this number, so
+    changing it after the first hole would re-decide a result the group has
+    already been given.
+
+    The only editable thing about a participant. Who they are is immutable, and
+    their name on the board is a snapshot taken at registration.
+    """
+    tournament = await _tournament_or_404(tournament_id, tournaments)
+    reject_fun_round(tournament)
+    require_organiser(tournament, current_user)
+    participant = await _participant_or_404(tournament, participant_id, participants)
+    try:
+        updated = await participants.set_handicap(tournament, participant, payload.playing_handicap)
+    except FieldLocked as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return ParticipantRead.model_validate(updated)
 
 
 @router.delete("/{participant_id}", status_code=status.HTTP_204_NO_CONTENT)

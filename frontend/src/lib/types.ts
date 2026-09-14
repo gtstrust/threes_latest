@@ -93,6 +93,8 @@ export type Tournament = {
    * make 18 and the whole field tees off at once.
    */
   loop_style: LoopStyle;
+  /** Decide holes on net strokes rather than gross (ADR-013). Off by default. */
+  handicap_enabled: boolean;
   course_id: UUID | null;
   /**
    * When it's played, as an instant. Null means no date — and an event with no
@@ -152,6 +154,8 @@ export type Participant = {
   player_id: UUID | null;
   display_name: string;
   is_virtual: boolean;
+  /** Per event, 0-54, null until somebody enters one (ADR-013). */
+  playing_handicap: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -186,8 +190,11 @@ export type RoundWithGroups = Round & { groups: Group[] };
 
 export type HoleScore = {
   participant_id: UUID;
+  /** Gross — what the group counted. */
   strokes: number;
   points: number;
+  /** Shots this player's handicap gave them here. Net is the difference (ADR-013). */
+  strokes_received: number;
 };
 
 export type HoleResult = {
@@ -216,9 +223,14 @@ export type LeaderboardEntry = {
   participant_id: UUID;
   display_name: string;
   points: number;
+  /** Gross. Unchanged in meaning, so this still reads as it always did. */
   total_strokes: number;
   /** Holes actually scored, not the three in the loop — a group still out shows as such. */
   holes_played: number;
+  /** Gross less shots received, and what the board was actually ranked on
+   *  (ADR-013). Null on a scratch event — a number equal to `total_strokes`
+   *  would read as a real net score rather than as "not applicable". */
+  net_strokes: number | null;
   /** Rounds survived, on a **knockout** — the last round drawn into, plus one if
    *  they won it, so the champion leads (ADR-012). Null on a round robin, where
    *  nobody is knocked out and the figure would mean nothing. */

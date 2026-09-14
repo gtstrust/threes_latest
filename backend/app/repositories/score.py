@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.course import Course, Hole
 from app.models.participant import TournamentParticipant
-from app.models.round import Group, Round
+from app.models.round import Group, GroupHole, GroupMember, Round
 from app.models.score import HoleResult, HoleScore
 from app.services.scoring import DecidedBy
 
@@ -40,20 +40,40 @@ class ScoreTotals:
     points: int
     strokes: int
     holes_played: int
+    #: Shots their handicap gave them across those holes (ADR-013). Zero for
+    #: every scratch event, which is what makes `net_strokes` below provably the
+    #: number this used to return.
+    strokes_received: int = 0
+
+    @property
+    def net_strokes(self) -> int:
+        """Gross less the shots received — what the rankings actually compare.
+
+        Derived, never stored: the arithmetic is exact, and a second column
+        holding the same fact is a second column free to disagree with the first.
+        """
+        return self.strokes - self.strokes_received
 
 
-def _totals_query() -> Select[tuple[UUID, int, int, int]]:
-    """SUM(points), SUM(strokes) and a hole count, per participant.
+def _totals_query() -> Select[tuple[UUID, int, int, int, int]]:
+    """SUM(points), SUM(strokes), a hole count and SUM(strokes_received).
 
     ADR-009 stores points on the score row precisely so this is a plain
     aggregate rather than a walk over per-hole verdicts. `hole_scores` carries
     no tournament_id, so both callers reach one through `groups`.
+
+    **This is the only aggregate in the codebase**, and it feeds the leaderboard,
+    the knockout cascade and player stats alike. That is why handicaps needed one
+    extra term here rather than a second query: net reaches everything downstream
+    through `ScoreTotals.net_strokes`, and a scratch event sums the new column to
+    zero so every caller is arithmetically unchanged.
     """
     return select(
         HoleScore.participant_id,
         func.sum(HoleScore.points),
         func.sum(HoleScore.strokes),
         func.count(HoleScore.id),
+        func.sum(HoleScore.strokes_received),
     ).group_by(HoleScore.participant_id)
 
 
@@ -61,14 +81,19 @@ class ScoreRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def _totals(self, query: Select[tuple[UUID, int, int, int]]) -> dict[UUID, ScoreTotals]:
+    async def _totals(
+        self, query: Select[tuple[UUID, int, int, int, int]]
+    ) -> dict[UUID, ScoreTotals]:
         result = await self._session.execute(query)
         # SUM() comes back as Decimal; coerce here so nothing downstream has to.
         return {
             participant_id: ScoreTotals(
-                points=int(points), strokes=int(strokes), holes_played=int(holes)
+                points=int(points),
+                strokes=int(strokes),
+                holes_played=int(holes),
+                strokes_received=int(received),
             )
-            for participant_id, points, strokes, holes in result.all()
+            for participant_id, points, strokes, holes, received in result.all()
         }
 
     async def totals_for_tournament(self, tournament_id: UUID) -> dict[UUID, ScoreTotals]:
@@ -219,6 +244,7 @@ class ScoreRepository:
                 func.sum(HoleScore.points),
                 func.sum(HoleScore.strokes),
                 func.count(HoleScore.id),
+                func.sum(HoleScore.strokes_received),
             )
             .join(Group, Group.id == HoleScore.group_id)
             .where(Group.round_id == round_id)
@@ -228,11 +254,40 @@ class ScoreRepository:
 
         by_group: dict[UUID, dict[UUID, ScoreTotals]] = {}
         # SUM() comes back as Decimal; coerce here, as `_totals` does.
-        for group_id, participant_id, points, strokes, holes in result.all():
+        for group_id, participant_id, points, strokes, holes, received in result.all():
             by_group.setdefault(group_id, {})[participant_id] = ScoreTotals(
-                points=int(points), strokes=int(strokes), holes_played=int(holes)
+                points=int(points),
+                strokes=int(strokes),
+                holes_played=int(holes),
+                strokes_received=int(received),
             )
         return by_group
+
+    async def loop_for_allocation(self, group_id: UUID) -> list[tuple[UUID, int | None]]:
+        """The holes of a group's loop, each with its stroke index (ADR-013).
+
+        Exactly what `allocate_shots` needs and nothing else. The index is
+        nullable here because the column is — the draw refuses a handicap event
+        whose holes lack one, so by the time a score is entered this cannot be
+        null, and the caller asserts that rather than guessing a value.
+        """
+        query = (
+            select(Hole.id, Hole.stroke_index)
+            .join(GroupHole, GroupHole.hole_id == Hole.id)
+            .where(GroupHole.group_id == group_id)
+        )
+        result = await self._session.execute(query)
+        return [(hole_id, stroke_index) for hole_id, stroke_index in result.all()]
+
+    async def handicaps_for_group(self, group_id: UUID) -> dict[UUID, int | None]:
+        """Each group member's playing handicap, by participant id (ADR-013)."""
+        query = (
+            select(TournamentParticipant.id, TournamentParticipant.playing_handicap)
+            .join(GroupMember, GroupMember.participant_id == TournamentParticipant.id)
+            .where(GroupMember.group_id == group_id)
+        )
+        result = await self._session.execute(query)
+        return {participant_id: handicap for participant_id, handicap in result.all()}
 
     async def list_results_for_round(self, round_id: UUID) -> Sequence[HoleResult]:
         """Every decided hole in a round, in one query rather than one per group.
@@ -279,6 +334,7 @@ class ScoreRepository:
         hole_id: UUID,
         strokes: Mapping[UUID, int],
         points: Mapping[UUID, int],
+        strokes_received: Mapping[UUID, int] | None = None,
         winner_participant_id: UUID | None,
         decided_by: DecidedBy,
         closest_to_pin: UUID | None,
@@ -289,7 +345,14 @@ class ScoreRepository:
         Re-submitting a hole is ordinary — a mis-keyed number, or the tie-break
         answer arriving after the strokes — so existing rows are updated in place
         rather than rejected as duplicates.
+
+        `strokes_received` is written beside the strokes it applies to, and is
+        rewritten on a re-submission like everything else here — the allocation is
+        recomputed from the handicaps each time, so a hole never keeps shots from
+        an earlier version of itself. Absent means a scratch event, and every row
+        gets a zero.
         """
+        received = strokes_received or {}
         existing = {
             score.participant_id: score
             for score in await self.list_scores_for_hole(group_id, hole_id)
@@ -305,11 +368,13 @@ class ScoreRepository:
                         participant_id=participant_id,
                         strokes=stroke_count,
                         points=points[participant_id],
+                        strokes_received=received.get(participant_id, 0),
                     )
                 )
             else:
                 score.strokes = stroke_count
                 score.points = points[participant_id]
+                score.strokes_received = received.get(participant_id, 0)
 
         # A player dropped from a re-submission would otherwise keep the points
         # from the earlier one.

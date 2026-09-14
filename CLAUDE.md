@@ -238,7 +238,7 @@ rules depending on how complete the data was — worse than honest imprecision. 
 already exist: several rounds with re-randomised groups spread the luck, and with integer points
 over nine holes the tie-break separates far fewer players than it looks like it will.
 
-**Forward compatibility with handicaps (Phase 3):** because the client submits only raw strokes (ADR-002) and points are always derived server-side, net scoring can be layered on later without changing the score-entry path or re-migrating stored scores. **ADR-013 collects that promise** — it runs this same cascade on net strokes, adding one optional argument and changing no level of it.
+**Forward compatibility with handicaps:** because the client submits only raw strokes (ADR-002) and points are always derived server-side, net scoring can be layered on later without changing the score-entry path or re-migrating stored scores. **ADR-013 collects that promise** — it runs this same cascade on net strokes, adding one optional argument and changing no level of it.
 
 ### ADR-008: Play statuses are owned by the round endpoints
 `ROUND_IN_PROGRESS` and `ROUND_COMPLETE` cannot be set through `POST /tournaments/{id}/status`. Drawing a round and starting play are one action (`POST /tournaments/{id}/rounds`), as are finishing a round and ending it (`POST /rounds/{round_id}/complete`).
@@ -379,7 +379,7 @@ results — and a completed round's scores are closed, so there is no correction
 **The bracket is re-randomised each round, not seeded.** `build_groups` is order-preserving, so
 carrying the previous round's order forward would put group 1's winner against group 2's every time
 — a fixed bracket whose shape came from nothing but registration order surviving round one. Seeding
-stays out of scope: there is no handicap or ranking to seed *from* until Phase 3.
+stays out of scope: there was no handicap or ranking to seed *from* when this was written. ADR-013 has since added one, and seeding on it remains unbuilt — a decision to make on its own rather than a consequence of this.
 
 **The last player is a refusal, not a transition.** When one player remains the draw answers **409**
 naming the champion and pointing at the status endpoint; ending the tournament stays the organiser's
@@ -395,12 +395,11 @@ sort key for every round robin and therefore no change to one; on the wire it is
 than 0 there, because 0 would read as "went out immediately".
 
 
-### ADR-013: Handicaps are pro-rated to the loop, and the cascade runs on net — Phase 3
+### ADR-013: Handicaps are pro-rated to the loop, and the cascade runs on net
 
-Deferred, and **designed rather than built** — the phase boundary in `ROADMAP.md` still holds and
-nothing below is implemented. This ADR exists because the answer is needed the first time an
-organiser asks, and because the shape of it constrains things that *are* built: what `stroke_index`
-is for, why `points` is integer-only, and why ADR-002 keeps raw strokes on the wire.
+**Built**, and pulled forward out of Phase 3 by an explicit decision rather than by drift. This ADR
+was written first and implemented afterwards, so what follows is the design as decided; `ROADMAP.md`
+records that it shipped.
 
 A player's **playing handicap** is an 18-hole figure. Pro-rate it to the loop —
 `round_half_up(handicap × holes_in_loop ÷ 18)` — to get the **shots** they receive over those three
@@ -602,10 +601,10 @@ VITE_API_BASE_URL=http://localhost:8000
   editable only by whoever created it.
 - **Hole**: One hole of a course — `hole_number`, plus optional `par` and `stroke_index`. Both are
   optional because scoring never uses either today (ADR-007 is strokes alone), so an organiser can
-  enter three hole numbers and start. `stroke_index` is present ready for Phase 3 handicaps, where
-  it stops being optional: ADR-013 deals shots by it, so a handicap event whose holes lack one is
-  refused at the draw. **Nothing populates it yet** — the course setup posts bare hole numbers, so
-  every stored `stroke_index` is null. A course only needs the holes actually being played — a
+  enter three hole numbers and start. `stroke_index` is the exception on a **handicap** event, where
+  it stops being optional: ADR-013 deals shots by it, so a draw is refused while any hole in play
+  lacks one. It is entered on the course setup screen, behind a disclosure — every value stored
+  before that screen existed is null. A course only needs the holes actually being played — a
   3-hole loop needs 3, not 18.
 - **Round**: One stage of a tournament — a draw of groups all playing simultaneously. Carries its own
   status (`PENDING` / `IN_PROGRESS` / `COMPLETE`), distinct from the tournament's, because a
@@ -659,7 +658,7 @@ VITE_API_BASE_URL=http://localhost:8000
   "countback on the hardest hole" rule, which needed a per-hole difficulty ranking the organiser
   would have had to enter.)
 - **Playing Handicap**: A per-event allowance for one participant —
-  `tournament_participants.playing_handicap`, 0–54, Phase 3 (ADR-013). Per *event* rather than per
+  `tournament_participants.playing_handicap`, 0–54 (ADR-013). Per *event* rather than per
   player because it can differ between them, and because a Virtual Player has no `players` row to
   carry one. Editable until `ROUND_IN_PROGRESS`, frozen with the field thereafter.
 - **Shots Received**: How many strokes a player's handicap gave them on one hole —
@@ -716,10 +715,10 @@ VITE_API_BASE_URL=http://localhost:8000
   messages an hour, so the link frequently never arrives, and this is a bypass that needs no inbox.
   Supabase stores the password, not this app, and the flag comes off once custom SMTP is configured
   (`docs/DEPLOYMENT.md` §3). Until then, "no passwords are stored" is not true of this project.
-- **Phase 3 is the do-not-build list**, and `ROADMAP.md` has the detail: handicaps / net scoring,
+- **Phase 3 is the do-not-build list**, and `ROADMAP.md` has the detail:
   native apps, offline sync, AI generation, standalone longest-drive and closest-to-pin
   competitions, social, gamification, private realtime channels, and the commercial build — Stripe,
   club/corporate accounts, sponsors. Longest drive and closest to pin are *captured* in MVP because
   ADR-007 needs them to break tied holes; what is deferred is treating them as competitions in their
-  own right. Handicaps are deferred but no longer undecided — **ADR-013 settles the rule**; what is
-  Phase 3 is building it.
+  own right. **Handicaps are no longer on this list** — ADR-013 settled the rule and it has been
+  built, ahead of the phase boundary and deliberately.

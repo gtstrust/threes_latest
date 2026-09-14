@@ -104,10 +104,12 @@ async def accept_invitation(
     event = await _by_code(code, tournaments)
     try:
         if event.kind is TournamentKind.FUN_ROUND:
-            participant = await fun_rounds.join(event, current_user, payload.display_name)
+            participant = await fun_rounds.join(
+                event, current_user, payload.display_name, payload.playing_handicap
+            )
         else:
             participant = await participants.self_register(
-                event, current_user, payload.display_name
+                event, current_user, payload.display_name, payload.playing_handicap
             )
     except PlayerProfileMissing:
         raise HTTPException(

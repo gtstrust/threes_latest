@@ -54,6 +54,7 @@ export function TournamentSettingsPage({ tournamentId }: { tournamentId: UUID })
         format={tournament.data.format}
         groupSize={tournament.data.group_size}
         loopStyle={tournament.data.loop_style}
+        handicapEnabled={tournament.data.handicap_enabled}
         courses={courses.data ?? []}
       />
     </Page>
@@ -69,6 +70,7 @@ function SettingsForm({
   format,
   groupSize: initialGroupSize,
   loopStyle: initialLoopStyle,
+  handicapEnabled: initialHandicaps,
   courses,
 }: {
   tournamentId: UUID;
@@ -79,6 +81,7 @@ function SettingsForm({
   format: TournamentFormat;
   groupSize: number;
   loopStyle: LoopStyle;
+  handicapEnabled: boolean;
   courses: { id: UUID; name: string; hole_count: number }[];
 }) {
   const update = useUpdateTournament(tournamentId);
@@ -89,6 +92,7 @@ function SettingsForm({
   const [cap, setCap] = useState(maxPlayers === null ? '' : String(maxPlayers));
   const [groupSize, setGroupSize] = useState<GroupSize>(initialGroupSize === 4 ? 4 : 3);
   const [loopStyle, setLoopStyle] = useState<LoopStyle>(initialLoopStyle);
+  const [handicaps, setHandicaps] = useState(initialHandicaps);
 
   const course = useCourse(courseId || null);
   const holes = course.data?.holes.length ?? 0;
@@ -107,6 +111,7 @@ function SettingsForm({
       // group size or no start style describes nothing.
       group_size: groupSize,
       loop_style: loopStyle,
+      handicap_enabled: handicaps,
     });
   }
 
@@ -185,6 +190,21 @@ function SettingsForm({
           <option value="SHOTGUN">Shotgun — every hole is a starting tee</option>
         </select>
         {start && <p className="muted small">{start}</p>}
+
+        <label htmlFor="handicaps">
+          <input
+            id="handicaps"
+            type="checkbox"
+            checked={handicaps}
+            onChange={(event) => setHandicaps(event.target.checked)}
+          />{' '}
+          Handicaps — decide holes on net strokes
+        </label>
+        <p className="muted small">
+          Shots come off a player&rsquo;s gross score, dealt to the hardest holes of their loop.
+          Every player needs a handicap and every hole being played needs a stroke index; the draw
+          says so if either is missing.
+        </p>
 
         <button type="submit" disabled={update.isPending || !name}>
           {update.isPending ? 'Saving…' : 'Save changes'}

@@ -34,6 +34,16 @@ function cardPath(groupId: UUID, backTo?: BackTo): string {
   return backTo?.to.startsWith('/r/') ? `${backTo.to}/g/${groupId}/card` : `/g/${groupId}/card`;
 }
 
+/**
+ * Shots a player received on the hole a result describes, or 0 if unknown.
+ *
+ * Unknown is the ordinary case before the hole is first saved — nothing on the
+ * client can work an allocation out, and nothing should try.
+ */
+function shotsFor(result: HoleResult | undefined, participantId: UUID): number {
+  return result?.scores.find((score) => score.participant_id === participantId)?.strokes_received ?? 0;
+}
+
 /** A sane opening guess, so most holes are two taps rather than four. */
 const DEFAULT_STROKES = 4;
 
@@ -213,7 +223,17 @@ function HoleEntry({
         <h2>Strokes</h2>
         {members.map((id) => (
           <div className="stroke-row" key={id}>
-            <span className="stroke-name">{nameOf(id)}</span>
+            <span className="stroke-name">
+              {nameOf(id)}
+              {shotsFor(latest, id) > 0 && (
+                // Only ever from a server response: the allocation is the
+                // server's to make (ADR-002), and a client that worked it out
+                // would be a second implementation of ADR-013 to keep in step.
+                <span className="shots" aria-label={`${shotsFor(latest, id)} shots on this hole`}>
+                  {'•'.repeat(shotsFor(latest, id))}
+                </span>
+              )}
+            </span>
             <div className="stepper">
               <button
                 type="button"
@@ -353,7 +373,20 @@ function Settled({ result, nameOf }: { result: HoleResult; nameOf: (id: UUID) =>
           <li key={score.participant_id}>
             <span>{nameOf(score.participant_id)}</span>
             <span className="muted">
-              {score.strokes} strokes · {score.points} pt
+              {score.strokes_received > 0 ? (
+                // Gross first, because that is the number the group counted and
+                // will argue about; net second, because it is the one that
+                // decided the hole. Never one without the other.
+                <>
+                  {score.strokes} − {score.strokes_received} ={' '}
+                  <strong>{score.strokes - score.strokes_received}</strong> net ·{' '}
+                  {score.points} pt
+                </>
+              ) : (
+                <>
+                  {score.strokes} strokes · {score.points} pt
+                </>
+              )}
             </span>
           </li>
         ))}

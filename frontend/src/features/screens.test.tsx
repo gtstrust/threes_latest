@@ -94,6 +94,7 @@ const TOURNAMENT = {
   format: 'ROUND_ROBIN',
   group_size: 3,
   loop_style: 'BLOCKS',
+  handicap_enabled: false,
   course_id: 'course-1',
   scheduled_at: null,
   created_at: '',
@@ -110,8 +111,22 @@ const ROUTES: Record<string, unknown> = {
   '/players/me/tournaments': [TOURNAMENT],
   [`/tournaments/${T}`]: TOURNAMENT,
   [`/tournaments/${T}/participants`]: [
-    { id: 'p-kim', tournament_id: T, player_id: PLAYER_ID, display_name: 'Kim', is_virtual: false },
-    { id: 'p-dave', tournament_id: T, player_id: null, display_name: 'Dave', is_virtual: true },
+    {
+      id: 'p-kim',
+      tournament_id: T,
+      player_id: PLAYER_ID,
+      display_name: 'Kim',
+      is_virtual: false,
+      playing_handicap: null,
+    },
+    {
+      id: 'p-dave',
+      tournament_id: T,
+      player_id: null,
+      display_name: 'Dave',
+      is_virtual: true,
+      playing_handicap: null,
+    },
   ],
   [`/tournaments/${T}/rounds`]: [
     { id: 'round-1', tournament_id: T, round_number: 1, status: 'IN_PROGRESS' },
@@ -1046,12 +1061,18 @@ describe('how Threes works', () => {
 
     expect(screen.queryByRole('button', { name: /how to run one/i })).not.toBeInTheDocument();
 
-    // Six player steps, so five taps reaches the last one.
-    for (let step = 0; step < 5; step += 1) {
-      await userEvent.click(await screen.findByRole('button', { name: 'Next' }));
+    // Walk to the end rather than counting taps: the number of player steps is
+    // content, and a test that hardcodes it fails every time somebody writes a
+    // new one — which is not a regression worth being told about.
+    for (let guard = 0; guard < 20; guard += 1) {
+      const next = screen.queryByRole('button', { name: 'Next' });
+      if (!next) break;
+      await userEvent.click(next);
     }
 
-    expect(await screen.findByText('More than one round')).toBeInTheDocument();
+    // "Done" is a Link, so it is a link — the last step offers a way out of the
+    // walkthrough rather than another step.
+    expect(await screen.findByRole('link', { name: 'Done' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /how to run one/i }));
     expect(await screen.findByText('Setting up an event')).toBeInTheDocument();
   });
@@ -1071,5 +1092,84 @@ describe('how Threes works', () => {
     expect(screen.getByText(/if two of you tie on strokes/i)).toBeVisible();
     // Still on score entry — the panel offers the walkthrough, it does not go.
     expect(screen.getByRole('heading', { name: /Group/ })).toBeInTheDocument();
+  });
+});
+
+/**
+ * Handicaps (ADR-013), where they reach a screen.
+ *
+ * The allocation is the server's and is tested there. What matters here is that
+ * a scratch event looks exactly as it did — no Net column, no handicap boxes —
+ * and that a handicap event shows both numbers rather than quietly replacing
+ * gross with net.
+ */
+describe('handicaps', () => {
+  const HANDICAP_TOURNAMENT = { ...TOURNAMENT, status: 'REGISTRATION_OPEN', handicap_enabled: true };
+
+  function serve(routes: Record<string, unknown>) {
+    get.mockImplementation((path: string) =>
+      path in routes
+        ? Promise.resolve(routes[path])
+        : Promise.reject(new Error(`unexpected GET ${path}`)),
+    );
+  }
+
+  it('leaves a scratch board exactly as it was', async () => {
+    show(<LeaderboardPage tournamentId={T} />);
+
+    await screen.findByRole('table');
+    expect(screen.queryByRole('columnheader', { name: 'Net' })).not.toBeInTheDocument();
+    expect(screen.getByText(/level players are split by fewest total strokes/i)).toBeInTheDocument();
+  });
+
+  it('adds a Net column, and keeps gross beside it', async () => {
+    serve({
+      ...ROUTES,
+      [`/tournaments/${T}/leaderboard`]: {
+        tournament_id: T,
+        round_id: null,
+        entries: [
+          {
+            position: 1,
+            participant_id: 'p-dave',
+            display_name: 'Dave',
+            points: 1,
+            total_strokes: 21,
+            holes_played: 3,
+            rounds_survived: null,
+            net_strokes: 18,
+          },
+        ],
+      },
+    });
+
+    show(<LeaderboardPage tournamentId={T} />);
+
+    expect(await screen.findByRole('columnheader', { name: 'Net' })).toBeInTheDocument();
+    // Both numbers, neither replacing the other.
+    expect(screen.getByText('21')).toBeInTheDocument();
+    expect(screen.getByText('18')).toBeInTheDocument();
+    expect(screen.getByText(/gross less the shots received/i)).toBeInTheDocument();
+  });
+
+  it('gives the organiser a handicap box per player, only on a handicap event', async () => {
+    serve({ ...ROUTES, [`/tournaments/${T}`]: HANDICAP_TOURNAMENT });
+
+    show(<TournamentPage tournamentId={T} />);
+
+    expect(await screen.findByLabelText('Handicap for Kim')).toBeInTheDocument();
+    expect(screen.getByLabelText('Handicap for Dave')).toBeInTheDocument();
+    // And says which rows still need one, where the organiser is already looking
+    // rather than only when the draw refuses.
+    expect(screen.getAllByText(/no handicap/i)).toHaveLength(2);
+  });
+
+  it('shows no handicap boxes on a scratch event', async () => {
+    serve({ ...ROUTES, [`/tournaments/${T}`]: { ...TOURNAMENT, status: 'REGISTRATION_OPEN' } });
+
+    show(<TournamentPage tournamentId={T} />);
+
+    await screen.findByText('Kim');
+    expect(screen.queryByLabelText('Handicap for Kim')).not.toBeInTheDocument();
   });
 });
